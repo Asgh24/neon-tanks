@@ -780,14 +780,14 @@
 
   /* On-screen touch buttons (mobile / Telegram Mini App) */
   #touchButtons {
-    position: absolute; right: 14px; bottom: 96px;
-    display: none; flex-direction: column-reverse; gap: 12px; align-items: flex-end;
+    position: absolute; left: 14px; bottom: 96px;
+    display: none; flex-direction: column-reverse; gap: 12px; align-items: flex-start;
     z-index: 12; pointer-events: none;
   }
   body.touch #touchButtons { display: flex; }
-  /* On touch devices the desktop gadget cooldown panel would overlap the
-     action buttons; keep it but shift it up out of the way. */
-  body.touch #gadgetHud { bottom: 250px; right: 14px; transform: scale(0.9); transform-origin: bottom right; }
+  /* On touch devices the gadget cooldown panel lives on the LEFT above the
+     action buttons (right side is reserved for the movement stick). */
+  body.touch #gadgetHud { bottom: 250px; left: 14px; right: auto; align-items: flex-start; transform: scale(0.9); transform-origin: bottom left; }
   .touch-btn {
     pointer-events: auto;
     width: 66px; height: 66px; border-radius: 50%;
@@ -1064,6 +1064,27 @@
 /* ===========================================================================
  *  NEON TANKS — full game implementation (single file)
  * =========================================================================== */
+
+/* Surface fatal errors on-screen — Telegram's WebView has no console, so a
+ * crash would otherwise look like a silent black screen. */
+function showFatal(msg) {
+  try {
+    let el = document.getElementById('errOverlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'errOverlay';
+      el.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;background:rgba(130,10,20,0.94);color:#fff;font:12px/1.5 monospace;padding:8px 10px;border-radius:8px;direction:ltr;text-align:left;white-space:pre-wrap;max-height:45%;overflow:auto';
+      (document.body || document.documentElement).appendChild(el);
+    }
+    el.textContent += msg + '\n';
+  } catch (_) {}
+}
+window.addEventListener('error', (e) => {
+  showFatal((e.message || 'error') + ' @' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || 0));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  showFatal('promise: ' + ((e.reason && (e.reason.message || e.reason)) || 'rejected'));
+});
 
 /* ---------------------------- Tiny DOM helpers ---------------------------- */
 const $ = (id) => document.getElementById(id);
@@ -1483,6 +1504,10 @@ function buildStaticLayers() {
 
 window.addEventListener('resize', () => { resize(); initStars(); });
 resize();
+// Telegram's WebView reports a tiny/zero viewport for the first moments while
+// the expand animation runs; retry a few times so the canvas never stays 0-sized.
+setTimeout(() => { resize(); initStars(); }, 350);
+setTimeout(() => { resize(); initStars(); }, 1200);
 
 /* ------------------------------ Input state ------------------------------ */
 const keys = Object.create(null);
@@ -1523,8 +1548,9 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 /* --------------------------- Touch controls ---------------------------------
  * Dual floating joysticks + on-screen ability buttons for phones / Mini App.
  *   - Touch in the LEFT half  -> movement stick (analog vector, magnitude used)
- *   - Touch in the RIGHT half -> aim stick; holding it auto-fires the main gun
- *   - DOM buttons (bottom-right) trigger the weapon gadget (RMB) and abilities
+ *   - Touch in the RIGHT half -> move stick; LEFT half -> aim stick, and
+ *     holding the aim stick auto-fires the main gun
+ *   - DOM buttons (bottom-left) trigger the weapon gadget (RMB) and abilities
  * The sticks are "floating": the base spawns wherever the finger lands, so the
  * player never has to hunt for a fixed pad. Multi-touch aware via identifiers.
  * Drawn on-canvas in render(); buttons live in #touchButtons (DOM). */
@@ -1561,10 +1587,10 @@ if (Tg.isTouch()) {
   addEventListener('DOMContentLoaded', () => {
     const hint = document.querySelector('.controls-hint');
     if (hint) hint.innerHTML = `
-      <div class="ctrl-card"><b>حرکت / Move</b>جوی‌استیک سمت چپ</div>
-      <div class="ctrl-card"><b>نشانه و شلیک</b>جوی‌استیک سمت راست</div>
-      <div class="ctrl-card"><b>تیربار</b>دکمه‌ی بنفش پایین راست</div>
-      <div class="ctrl-card"><b>گجت‌ها</b>دکمه‌های گرد کنار صفحه</div>`;
+      <div class="ctrl-card"><b>حرکت / Move</b>جوی‌استیک سمت راست</div>
+      <div class="ctrl-card"><b>نشانه و شلیک</b>جوی‌استیک سمت چپ</div>
+      <div class="ctrl-card"><b>تیربار</b>دکمه‌ی بنفش پایین چپ</div>
+      <div class="ctrl-card"><b>گجت‌ها</b>دکمه‌های گرد سمت چپ</div>`;
   });
   const rectXY = (t) => { const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top, inRect: t.clientY - r.top >= 0 }; };
   canvas.addEventListener('touchstart', (e) => {
@@ -1573,10 +1599,10 @@ if (Tg.isTouch()) {
     for (const t of e.changedTouches) {
       const p = rectXY(t);
       if (Game.state !== 'battle') { mouse.x = p.x; mouse.y = p.y; mouse.down = true; continue; }
-      const leftHalf = p.x < W * 0.5;
-      if (leftHalf && Touch.move.id === null) {
+      const rightHalf = p.x >= W * 0.5;
+      if (rightHalf && Touch.move.id === null) {
         Touch.move.id = t.identifier; Touch.move.ox = p.x; Touch.move.oy = p.y; Touch.move.cx = p.x; Touch.move.cy = p.y;
-      } else if (!leftHalf && Touch.aim.id === null) {
+      } else if (!rightHalf && Touch.aim.id === null) {
         Touch.aim.id = t.identifier; Touch.aim.ox = p.x; Touch.aim.oy = p.y; Touch.aim.cx = p.x; Touch.aim.cy = p.y;
         Touch.firing = true;
       }
