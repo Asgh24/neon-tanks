@@ -1,0 +1,15 @@
+name = "neon-tanks-mp"
+main = "worker.js"
+compatibility_date = "2026-07-01"
+
+# Squad rooms live in a Durable Object (WebSocket Hibernation API).
+[[durable_objects.bindings]]
+name = "SQUAD_ROOMS"
+class_name = "SquadRooms"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SquadRooms"]
+
+# Set the Telegram bot token as a secret (never commit it):
+#   wrangler secret put BOT_TOKEN

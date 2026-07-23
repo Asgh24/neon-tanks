@@ -1,0 +1,5103 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#04060c">
+<title>NEON TANKS — نبرد زرهی</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  /* ===========================================================================
+   * NEON TANKS
+   * A single-file, dependency-free 2D tank shooter with:
+   *   • Top-down player tank (WASD + mouse aim) with radar scanner.
+   *   • Three enemy classes (Light / Medium / Heavy) with distinct AI.
+   *   • Five progressively harder levels with arm-select between rounds.
+   *   • ROGUELITE mode: infinite descent, 18 modules, 3 unique bosses,
+   *     procedural waves, Aether Shard meta-progression (localStorage).
+   *   • Particle explosions, drifting clouds background, neon HUD.
+   *   • Web Audio API SFX (shoot / explosion / pickup / UI).
+   *
+   * Architecture: a small fixed-timestep loop drives three logical systems —
+   * input, physics/AI update, and render. State lives in plain objects plus a
+   * `Game` controller that handles flow (menu → armory → battle → outcome).
+   * ======================================================================== */
+
+  :root {
+    --bg-0: #05070d;
+    --bg-1: #0a1020;
+    --neon: #00f0ff;
+    --neon-2: #ff2bd6;
+    --neon-3: #b6ff3a;
+    --danger: #ff3b3b;
+    --gold: #ffd23f;
+    --text: #e6f0ff;
+    --muted: #7b88a6;
+    --panel: rgba(10, 16, 32, 0.82);
+    --stroke: rgba(0, 240, 255, 0.35);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-0);
+    color: var(--text);
+    font-family: 'Segoe UI', Tahoma, 'Vazirmatn', sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: crosshair;
+    /* Mobile / Telegram Mini App hardening */
+    position: fixed;
+    inset: 0;
+    overscroll-behavior: none;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  @media (pointer: coarse) {
+    html, body { cursor: default; }
+    canvas#game { image-rendering: auto; }
+  }
+
+  #game-wrap {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, 0.08), transparent 60%),
+      radial-gradient(ellipse at 50% 100%, rgba(255, 43, 214, 0.06), transparent 60%),
+      linear-gradient(180deg, var(--bg-1), var(--bg-0));
+  }
+
+  canvas#game {
+    display: block;
+    background: #02050a;
+    box-shadow:
+      0 0 0 1px var(--stroke),
+      0 0 60px rgba(0, 240, 255, 0.15),
+      inset 0 0 80px rgba(0, 0, 0, 0.7);
+    border-radius: 6px;
+    image-rendering: pixelated;
+  }
+
+  /* ----------------------------- Overlay screens ----------------------------- */
+  .screen {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    z-index: 20;
+    padding: 24px;
+    backdrop-filter: blur(2px);
+  }
+  .screen.active { display: flex; }
+
+  /* Title screen */
+  #menu {
+    background:
+      radial-gradient(circle at 50% 35%, rgba(0, 240, 255, 0.18), transparent 55%),
+      radial-gradient(circle at 50% 80%, rgba(255, 43, 214, 0.12), transparent 55%),
+      rgba(2, 5, 10, 0.55);
+    animation: fadeIn 0.6s ease;
+  }
+  .title {
+    font-size: clamp(48px, 11vw, 130px);
+    font-weight: 900;
+    letter-spacing: 6px;
+    line-height: 0.95;
+    background: linear-gradient(180deg, #fff, var(--neon) 60%, #0066ff);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 40px rgba(0, 240, 255, 0.4);
+    filter: drop-shadow(0 4px 20px rgba(0, 240, 255, 0.25));
+    margin-bottom: 6px;
+    animation: pulseGlow 3s ease-in-out infinite;
+  }
+  .subtitle {
+    font-size: clamp(14px, 2.6vw, 22px);
+    color: var(--neon-2);
+    letter-spacing: 8px;
+    margin-bottom: 36px;
+    font-weight: 700;
+    text-shadow: 0 0 14px rgba(255, 43, 214, 0.6);
+  }
+  .tagline {
+    color: var(--muted);
+    font-size: 14px;
+    max-width: 480px;
+    line-height: 1.7;
+    margin-bottom: 32px;
+  }
+
+  .btn {
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 16px 44px;
+    border-radius: 4px;
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.18), rgba(0, 240, 255, 0.04));
+    border: 1px solid var(--neon);
+    box-shadow:
+      0 0 22px rgba(0, 240, 255, 0.25),
+      inset 0 0 16px rgba(0, 240, 255, 0.08);
+    transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
+    margin: 8px;
+    text-transform: uppercase;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn:hover {
+    transform: translateY(-2px);
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.35), rgba(0, 240, 255, 0.1));
+    box-shadow: 0 0 36px rgba(0, 240, 255, 0.55), inset 0 0 24px rgba(0, 240, 255, 0.18);
+  }
+  .btn:active { transform: translateY(0); }
+  .btn.danger {
+    border-color: var(--danger);
+    background: linear-gradient(135deg, rgba(255, 59, 59, 0.18), rgba(255, 59, 59, 0.04));
+    box-shadow: 0 0 22px rgba(255, 59, 59, 0.25);
+  }
+  .btn.danger:hover {
+    background: linear-gradient(135deg, rgba(255, 59, 59, 0.35), rgba(255, 59, 59, 0.1));
+    box-shadow: 0 0 36px rgba(255, 59, 59, 0.55);
+  }
+  .btn.gold {
+    border-color: var(--gold);
+    background: linear-gradient(135deg, rgba(255, 210, 63, 0.2), rgba(255, 210, 63, 0.04));
+    box-shadow: 0 0 22px rgba(255, 210, 63, 0.25);
+  }
+
+  .controls-hint {
+    margin-top: 38px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    max-width: 640px;
+  }
+  .ctrl-card {
+    background: var(--panel);
+    border: 1px solid var(--stroke);
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .ctrl-card b {
+    color: var(--neon);
+    font-size: 15px;
+    letter-spacing: 1px;
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  /* Armory / arm select */
+  #armory .panel {
+    background: var(--panel);
+    border: 1px solid var(--stroke);
+    border-radius: 8px;
+    padding: 28px 32px;
+    max-width: 760px;
+    box-shadow: 0 0 60px rgba(0, 240, 255, 0.18);
+  }
+  .panel-title {
+    font-size: 26px;
+    letter-spacing: 4px;
+    color: var(--neon);
+    margin-bottom: 6px;
+    text-shadow: 0 0 18px rgba(0, 240, 255, 0.5);
+  }
+  .panel-sub {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 22px;
+    letter-spacing: 1px;
+  }
+  .arm-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .arm-card {
+    background: linear-gradient(180deg, rgba(0, 240, 255, 0.06), rgba(0, 0, 0, 0.4));
+    border: 1px solid var(--stroke);
+    border-radius: 6px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    text-align: right;
+    direction: rtl;
+  }
+  .arm-card:hover, .arm-card.selected {
+    transform: translateY(-3px);
+    border-color: var(--neon);
+    background: linear-gradient(180deg, rgba(0, 240, 255, 0.18), rgba(0, 0, 0, 0.5));
+    box-shadow: 0 0 28px rgba(0, 240, 255, 0.4);
+  }
+  .arm-icon {
+    font-size: 30px;
+    margin-bottom: 8px;
+    filter: drop-shadow(0 0 10px rgba(0, 240, 255, 0.6));
+  }
+  .arm-name { font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+  .arm-desc { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .arm-stats {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    justify-content: flex-end;
+  }
+  .stat-bar {
+    flex: 1;
+    height: 5px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .stat-bar > i {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, var(--neon), var(--neon-2));
+  }
+
+  /* Outcome screens */
+  #gameover, #victory { animation: fadeIn 0.6s ease; }
+  #gameover {
+    background: radial-gradient(circle at 50% 50%, rgba(255, 59, 59, 0.22), transparent 60%), rgba(2,5,10,0.7);
+  }
+  #victory {
+    background: radial-gradient(circle at 50% 50%, rgba(255, 210, 63, 0.22), transparent 60%), rgba(2,5,10,0.7);
+  }
+  .big-text {
+    font-size: clamp(54px, 12vw, 140px);
+    font-weight: 900;
+    letter-spacing: 6px;
+    margin-bottom: 14px;
+  }
+  #gameover .big-text {
+    color: var(--danger);
+    text-shadow: 0 0 50px rgba(255, 59, 59, 0.7);
+  }
+  #victory .big-text {
+    background: linear-gradient(180deg, #fff, var(--gold));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 50px rgba(255, 210, 63, 0.6);
+  }
+  .summary {
+    font-size: 16px;
+    color: var(--text);
+    margin-bottom: 28px;
+    letter-spacing: 1px;
+  }
+  .summary b { color: var(--neon); font-size: 22px; }
+
+  /* ----------------------------- In-game HUD ----------------------------- */
+  #hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    display: none;
+    z-index: 10;
+  }
+  #hud.active { display: block; }
+
+  .hud-top {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    right: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .hud-block {
+    background: var(--panel);
+    border: 1px solid var(--stroke);
+    border-radius: 4px;
+    padding: 8px 14px;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 0 18px rgba(0, 240, 255, 0.18);
+  }
+  .hud-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .hud-value {
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--neon);
+    letter-spacing: 1px;
+    text-shadow: 0 0 12px rgba(0, 240, 255, 0.6);
+    line-height: 1;
+    margin-top: 2px;
+  }
+
+  /* Life belt (visual hearts) */
+  #lifeBelt { display: flex; gap: 5px; margin-top: 6px; }
+  .heart {
+    width: 18px;
+    height: 18px;
+    background: var(--danger);
+    clip-path: polygon(50% 18%, 18% 0%, 0% 35%, 0% 55%, 50% 100%, 100% 55%, 100% 35%, 82% 0%);
+    filter: drop-shadow(0 0 6px rgba(255, 59, 59, 0.8));
+    transition: all 0.2s ease;
+  }
+  .heart.lost {
+    background: rgba(255, 255, 255, 0.08);
+    filter: none;
+    transform: scale(0.8);
+  }
+
+  /* Enemy counter */
+  .enemies-left { text-align: center; }
+
+  /* Pause + sound toggles */
+  .hud-actions { display: flex; gap: 8px; pointer-events: auto; }
+  .icon-btn {
+    width: 38px; height: 38px;
+    background: var(--panel);
+    border: 1px solid var(--stroke);
+    border-radius: 4px;
+    color: var(--neon);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .icon-btn:hover { background: rgba(0, 240, 255, 0.2); }
+
+  /* Power-up banner */
+  #powerupBanner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 36px;
+    font-weight: 900;
+    color: var(--neon-3);
+    text-shadow: 0 0 30px rgba(182, 255, 58, 0.8);
+    letter-spacing: 4px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+  #powerupBanner.show {
+    opacity: 1;
+    transform: translate(-50%, -80px);
+  }
+
+  /* Pause overlay */
+  #pauseOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2,5,10,0.78);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    z-index: 15;
+    backdrop-filter: blur(3px);
+  }
+  #pauseOverlay.active { display: flex; }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(40px);
+    background: var(--panel);
+    border: 1px solid var(--neon);
+    color: var(--text);
+    padding: 10px 22px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: all 0.35s ease;
+    z-index: 30;
+    box-shadow: 0 0 26px rgba(0, 240, 255, 0.4);
+    pointer-events: none;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  #toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* Animations */
+  @keyframes pulseGlow {
+    0%, 100% { filter: drop-shadow(0 4px 20px rgba(0, 240, 255, 0.25)); }
+    50% { filter: drop-shadow(0 4px 36px rgba(0, 240, 255, 0.55)); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes floatCloud {
+    from { transform: translateX(-20%); }
+    to { transform: translateX(120%); }
+  }
+
+  /* --------------------------- Mode buttons (menu) --------------------------- */
+  .menu-modes {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 18px;
+  }
+
+  /* --------------------------------- Squad --------------------------------- */
+  .squad-panel {
+    max-width: 560px;
+    margin: 0 auto 18px;
+    padding: 16px 18px;
+    border: 1px solid rgba(110, 255, 176, 0.4);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(110, 255, 176, 0.08), rgba(0, 0, 0, 0.4));
+    box-shadow: 0 0 26px rgba(110, 255, 176, 0.14), inset 0 0 18px rgba(110, 255, 176, 0.05);
+    text-align: center;
+  }
+  .squad-title { font-weight: 700; color: #6effb0; letter-spacing: 1px; margin-bottom: 8px; }
+  .squad-status { font-size: 13px; color: #cffff0; opacity: 0.85; margin-bottom: 10px; }
+  .squad-members { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 12px; }
+  .squad-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 20px;
+    background: rgba(110, 255, 176, 0.12);
+    border: 1px solid rgba(110, 255, 176, 0.35);
+    font-size: 12px; color: #eafff5;
+  }
+  .squad-chip.leader::before { content: '👑'; }
+  .squad-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .squad-actions .btn { padding: 8px 14px; font-size: 13px; }
+  .squad-hint { margin-top: 12px; font-size: 11px; opacity: 0.6; line-height: 1.6; }
+  #squadStrip {
+    position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; z-index: 5; pointer-events: none;
+  }
+  #squadStrip .sq {
+    display: flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 16px; font-size: 11px;
+    background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(110, 255, 176, 0.35);
+    color: #cffff0;
+  }
+  #squadStrip .sq .dot { width: 7px; height: 7px; border-radius: 50%; background: #6effb0; }
+  #squadStrip .sq.down .dot { background: #ff5a5a; }
+
+  /* ------------------------------- Forge / Hub ------------------------------- */
+  #forge { animation: fadeIn 0.5s ease; }
+  .forge-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    max-width: 820px;
+    margin: 0 auto 22px;
+  }
+  .upgrade-card {
+    background: linear-gradient(180deg, rgba(0, 240, 255, 0.06), rgba(0, 0, 0, 0.45));
+    border: 1px solid var(--stroke);
+    border-radius: 6px;
+    padding: 14px 16px;
+    text-align: right;
+    direction: rtl;
+  }
+  .upgrade-card.maxed {
+    border-color: var(--gold);
+    box-shadow: 0 0 18px rgba(255, 210, 63, 0.25);
+  }
+  .up-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 8px;
+  }
+  .up-name { font-size: 15px; font-weight: 800; color: var(--text); }
+  .up-ico { font-size: 20px; filter: drop-shadow(0 0 8px rgba(0,240,255,0.6)); }
+  .up-desc { font-size: 11px; color: var(--muted); line-height: 1.5; margin-bottom: 8px; }
+  .up-pip-row { display: flex; gap: 4px; margin-bottom: 10px; }
+  .up-pip {
+    flex: 1; height: 8px; border-radius: 2px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.06);
+  }
+  .up-pip.on {
+    background: linear-gradient(90deg, var(--neon), var(--neon-2));
+    border-color: transparent;
+    box-shadow: 0 0 8px rgba(0,240,255,0.6);
+  }
+  .up-buy {
+    width: 100%;
+    font-family: inherit; cursor: pointer;
+    background: linear-gradient(135deg, rgba(255,210,63,0.18), rgba(255,210,63,0.04));
+    border: 1px solid var(--gold);
+    color: var(--text);
+    padding: 8px; border-radius: 4px;
+    font-weight: 700; font-size: 13px; letter-spacing: 1px;
+    transition: all 0.15s ease;
+  }
+  .up-buy:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(255,210,63,0.35), rgba(255,210,63,0.1));
+    box-shadow: 0 0 16px rgba(255,210,63,0.5);
+  }
+  .up-buy:disabled { opacity: 0.4; cursor: not-allowed; }
+  .aether-banner {
+    background: var(--panel);
+    border: 1px solid var(--gold);
+    border-radius: 6px;
+    padding: 12px 24px;
+    margin: 0 auto 18px;
+    display: inline-flex; align-items: center; gap: 12px;
+    box-shadow: 0 0 24px rgba(255,210,63,0.25);
+  }
+  .aether-banner .ae-val {
+    font-size: 26px; font-weight: 900; color: var(--gold);
+    text-shadow: 0 0 12px rgba(255,210,63,0.7);
+  }
+  .aether-banner .ae-label { font-size: 12px; color: var(--muted); letter-spacing: 2px; }
+
+  /* ---------------------------- Relic choice screen ---------------------------- */
+  #relicChoice {
+    background: radial-gradient(circle at 50% 40%, rgba(0,240,255,0.15), transparent 60%), rgba(2,5,10,0.78);
+    animation: fadeIn 0.4s ease;
+  }
+  .relic-prompt {
+    font-size: clamp(20px, 3.5vw, 32px); font-weight: 900;
+    letter-spacing: 4px; color: var(--neon-2);
+    text-shadow: 0 0 20px rgba(255,43,214,0.6);
+    margin-bottom: 6px;
+  }
+  .relic-sub { color: var(--muted); font-size: 13px; letter-spacing: 2px; margin-bottom: 28px; }
+  .relic-row {
+    display: flex; gap: 18px; flex-wrap: wrap; justify-content: center;
+    max-width: 900px;
+  }
+  .relic-card {
+    width: 220px; min-height: 290px;
+    background: linear-gradient(180deg, rgba(10,16,32,0.95), rgba(2,5,10,0.95));
+    border: 2px solid var(--stroke);
+    border-radius: 10px;
+    padding: 22px 18px;
+    cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    transition: transform 0.25s cubic-bezier(.2,.8,.3,1.4), box-shadow 0.25s ease, border-color 0.25s ease;
+    animation: cardFlipIn 0.5s cubic-bezier(.2,.8,.3,1.4) backwards;
+    position: relative;
+    overflow: hidden;
+  }
+  .relic-card:nth-child(2) { animation-delay: 0.1s; }
+  .relic-card:nth-child(3) { animation-delay: 0.2s; }
+  .relic-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 0%, var(--rarity-glow, rgba(0,240,255,0.15)), transparent 65%);
+    pointer-events: none;
+  }
+  .relic-card:hover {
+    transform: translateY(-10px) scale(1.03);
+    border-color: var(--rarity-color, var(--neon));
+    box-shadow: 0 14px 40px rgba(0,0,0,0.6), 0 0 36px var(--rarity-glow, rgba(0,240,255,0.4));
+  }
+  .relic-card.rarity-common   { --rarity-color: #9fb4d4; --rarity-glow: rgba(159,180,212,0.25); }
+  .relic-card.rarity-rare     { --rarity-color: var(--neon);  --rarity-glow: rgba(0,240,255,0.35); }
+  .relic-card.rarity-epic     { --rarity-color: #c77dff; --rarity-glow: rgba(199,125,255,0.4); }
+  .relic-card.rarity-legendary{ --rarity-color: var(--gold); --rarity-glow: rgba(255,210,63,0.5); }
+  .relic-icon {
+    font-size: 52px; margin-bottom: 12px;
+    filter: drop-shadow(0 0 16px var(--rarity-glow, rgba(0,240,255,0.6)));
+    line-height: 1;
+  }
+  .relic-name {
+    font-size: 18px; font-weight: 900; color: var(--rarity-color, var(--neon));
+    letter-spacing: 1px; margin-bottom: 4px;
+    text-shadow: 0 0 12px var(--rarity-glow, rgba(0,240,255,0.5));
+  }
+  .relic-rarity-tag {
+    font-size: 10px; letter-spacing: 3px; color: var(--muted);
+    margin-bottom: 10px; text-transform: uppercase;
+  }
+  .relic-desc {
+    font-size: 12px; color: var(--text); opacity: 0.85; line-height: 1.6;
+    direction: rtl;
+  }
+  @keyframes cardFlipIn {
+    from { transform: rotateY(90deg) translateY(20px); opacity: 0; }
+    to   { transform: rotateY(0) translateY(0); opacity: 1; }
+  }
+
+  /* ------------------------------ Boss intro ------------------------------ */
+  #bossIntro {
+    background: radial-gradient(circle at 50% 50%, rgba(255,59,59,0.2), transparent 60%), rgba(2,5,10,0.85);
+    animation: fadeIn 0.3s ease;
+    pointer-events: none;
+  }
+  .boss-warning {
+    font-size: 14px; letter-spacing: 8px; color: var(--danger);
+    text-transform: uppercase; margin-bottom: 10px;
+    animation: warnBlink 0.5s steps(2) infinite;
+  }
+  .boss-name {
+    font-size: clamp(40px, 9vw, 110px);
+    font-weight: 900; letter-spacing: 6px;
+    background: linear-gradient(180deg, #fff, var(--danger) 60%, #800);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 30px rgba(255,59,59,0.7));
+    margin-bottom: 12px;
+    animation: bossSlam 0.6s cubic-bezier(.2,1.6,.4,1);
+  }
+  .boss-subtitle {
+    font-size: 16px; color: var(--muted); letter-spacing: 4px; margin-bottom: 24px;
+  }
+  .boss-health-mock {
+    width: min(420px, 70vw); height: 12px;
+    background: rgba(0,0,0,0.6); border: 1px solid var(--danger); border-radius: 6px;
+    overflow: hidden; box-shadow: 0 0 18px rgba(255,59,59,0.4);
+  }
+  .boss-health-mock::after {
+    content: ''; display: block; height: 100%; width: 100%;
+    background: linear-gradient(90deg, var(--danger), #ff8866);
+  }
+  @keyframes warnBlink { 50% { opacity: 0.25; } }
+  @keyframes bossSlam {
+    0%   { transform: scale(2.5); opacity: 0; letter-spacing: 30px; }
+    60%  { transform: scale(0.95); opacity: 1; }
+    100% { transform: scale(1); }
+  }
+
+  /* ------------------------------ Rogue death ------------------------------ */
+  #rogueDeath { animation: fadeIn 0.6s ease; }
+  #rogueDeath {
+    background: radial-gradient(circle at 50% 40%, rgba(255,59,59,0.18), transparent 60%), rgba(2,5,10,0.82);
+  }
+  .rogue-death-title {
+    font-size: clamp(46px, 10vw, 110px); font-weight: 900; letter-spacing: 6px;
+    color: var(--danger); text-shadow: 0 0 40px rgba(255,59,59,0.6);
+    margin-bottom: 6px;
+  }
+  .rogue-death-sub { font-size: 16px; color: var(--muted); letter-spacing: 3px; margin-bottom: 28px; }
+  .rogue-stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px; max-width: 720px; margin: 0 auto 26px;
+  }
+  .rogue-stat {
+    background: var(--panel); border: 1px solid var(--stroke); border-radius: 6px;
+    padding: 14px;
+  }
+  .rogue-stat .lbl { font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; }
+  .rogue-stat .val { font-size: 26px; font-weight: 900; color: var(--neon); margin-top: 4px;
+                     text-shadow: 0 0 10px rgba(0,240,255,0.5); }
+  .rogue-stat.gold .val { color: var(--gold); text-shadow: 0 0 10px rgba(255,210,63,0.6); }
+  .rogue-stat.danger .val { color: var(--danger); text-shadow: 0 0 10px rgba(255,59,59,0.6); }
+
+  /* ------------------------------ Active modules HUD ------------------------------ */
+  #moduleTray {
+    position: absolute; left: 14px; bottom: 14px;
+    display: flex; gap: 6px; flex-wrap: wrap; max-width: 50%;
+  }
+  .mod-chip {
+    width: 34px; height: 34px; border-radius: 6px;
+    background: var(--panel); border: 1px solid var(--stroke);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; cursor: help;
+    box-shadow: 0 0 10px rgba(0,240,255,0.18);
+    animation: chipPop 0.3s ease backwards;
+    transition: transform 0.15s ease;
+  }
+  .mod-chip:hover { transform: scale(1.15); }
+  .mod-chip.rare     { border-color: var(--neon); box-shadow: 0 0 12px rgba(0,240,255,0.4); }
+  .mod-chip.epic     { border-color: #c77dff; box-shadow: 0 0 12px rgba(199,125,255,0.5); }
+  .mod-chip.legendary{ border-color: var(--gold); box-shadow: 0 0 14px rgba(255,210,63,0.6); }
+  @keyframes chipPop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* Depth + Aether HUD */
+  .hud-block.depth .hud-value { color: var(--neon-2); text-shadow: 0 0 12px rgba(255,43,214,0.6); }
+  .hud-block.aether .hud-value { color: var(--gold); text-shadow: 0 0 12px rgba(255,210,63,0.6); font-size: 18px; }
+
+  /* HP block with exact number + bar */
+  #hpBlock { min-width: 130px; }
+  .hp-row { display: flex; align-items: baseline; gap: 2px; line-height: 1; }
+  .hp-num { font-size: 22px; font-weight: 900; color: #b6ff3a; text-shadow: 0 0 10px rgba(182,255,58,0.6); }
+  .hp-max { font-size: 12px; color: var(--muted); }
+  .hp-num.low { color: var(--gold); text-shadow: 0 0 10px rgba(255,210,63,0.6); }
+  .hp-num.crit { color: var(--danger); text-shadow: 0 0 12px rgba(255,59,59,0.8); animation: warnBlink 0.6s steps(2) infinite; }
+  .hp-bar {
+    width: 110px; height: 6px; margin-top: 6px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 3px; overflow: hidden;
+  }
+  .hp-fill {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #b6ff3a, #00f0ff);
+    box-shadow: 0 0 8px rgba(182,255,58,0.6);
+    transition: width 0.18s ease, background 0.3s ease;
+  }
+  .hp-fill.low { background: linear-gradient(90deg, var(--gold), #ff9a3d); }
+  .hp-fill.crit { background: linear-gradient(90deg, var(--danger), #ff8866); }
+
+  /* Gadget cooldown indicator (bottom-right) */
+  #gadgetHud {
+    position: absolute; right: 14px; bottom: 14px;
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  }
+  .gadget-slot {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel); border: 1px solid var(--stroke);
+    border-radius: 6px; padding: 6px 10px;
+    box-shadow: 0 0 14px rgba(0,240,255,0.2);
+  }
+  .gadget-slot.cooldown { opacity: 0.5; }
+  .gadget-slot.empty { display: none; }
+  .gadget-ico {
+    font-size: 22px; width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    filter: drop-shadow(0 0 6px rgba(0,240,255,0.5));
+  }
+  .gadget-info { display: flex; flex-direction: column; gap: 2px; }
+  .gadget-name { font-size: 11px; color: var(--text); font-weight: 700; letter-spacing: 1px; }
+  .gadget-key { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .gadget-cd-bar {
+    width: 60px; height: 4px; background: rgba(255,255,255,0.1);
+    border-radius: 2px; overflow: hidden; margin-top: 2px;
+  }
+  .gadget-cd-fill { height: 100%; width: 100%; background: var(--neon); transition: width 0.1s linear; }
+
+  /* On-screen touch buttons (mobile / Telegram Mini App) */
+  #touchButtons {
+    position: absolute; right: 14px; bottom: 96px;
+    display: none; flex-direction: column-reverse; gap: 12px; align-items: flex-end;
+    z-index: 12; pointer-events: none;
+  }
+  body.touch #touchButtons { display: flex; }
+  /* On touch devices the desktop gadget cooldown panel would overlap the
+     action buttons; keep it but shift it up out of the way. */
+  body.touch #gadgetHud { bottom: 250px; right: 14px; transform: scale(0.9); transform-origin: bottom right; }
+  .touch-btn {
+    pointer-events: auto;
+    width: 66px; height: 66px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 1px;
+    background: rgba(8, 16, 28, 0.72);
+    border: 2px solid var(--stroke);
+    color: var(--text); font-size: 26px; line-height: 1;
+    box-shadow: 0 0 16px rgba(0,240,255,0.25);
+    -webkit-user-select: none; user-select: none;
+    touch-action: none; transition: transform 0.05s, opacity 0.15s;
+  }
+  .touch-btn:active { transform: scale(0.9); background: rgba(0,240,255,0.25); }
+  .touch-btn.cooldown { opacity: 0.4; }
+  .touch-btn .tb-key { font-size: 9px; letter-spacing: 1px; color: var(--muted); }
+  .touch-btn.weapon { border-color: var(--neon-magenta, #ff2bd6); box-shadow: 0 0 16px rgba(255,43,214,0.35); }
+  .touch-btn.fire-main { width: 82px; height: 82px; font-size: 30px; border-color: var(--neon); }
+
+  /* Shop screen */
+  #shop { animation: fadeIn 0.5s ease; }
+  .shop-coins-banner {
+    background: var(--panel);
+    border: 1px solid var(--gold);
+    border-radius: 6px;
+    padding: 10px 22px;
+    margin: 0 auto 18px;
+    display: inline-flex; align-items: center; gap: 12px;
+    box-shadow: 0 0 24px rgba(255,210,63,0.25);
+  }
+  .shop-coins-banner .sc-val {
+    font-size: 24px; font-weight: 900; color: var(--gold);
+    text-shadow: 0 0 12px rgba(255,210,63,0.7);
+  }
+  .shop-coins-banner .sc-label { font-size: 12px; color: var(--muted); letter-spacing: 2px; }
+  .shop-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px; max-width: 880px; margin: 0 auto 22px;
+  }
+  .shop-card {
+    background: linear-gradient(180deg, rgba(0,240,255,0.06), rgba(0,0,0,0.45));
+    border: 1px solid var(--stroke);
+    border-radius: 6px;
+    padding: 16px; text-align: right; direction: rtl;
+    display: flex; flex-direction: column; gap: 8px;
+    transition: all 0.18s ease;
+  }
+  .shop-card:hover { border-color: var(--neon); box-shadow: 0 0 18px rgba(0,240,255,0.3); }
+  .shop-card.owned { border-color: var(--neon-3); }
+  .shop-card.locked { opacity: 0.55; }
+  .shop-card-head { display: flex; align-items: center; justify-content: space-between; }
+  .shop-card-name { font-size: 16px; font-weight: 800; color: var(--text); }
+  .shop-card-ico { font-size: 26px; filter: drop-shadow(0 0 8px rgba(0,240,255,0.5)); }
+  .shop-card-desc { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .shop-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+  .shop-card-cost { font-size: 14px; font-weight: 800; color: var(--gold); }
+  .shop-card-buy {
+    font-family: inherit; cursor: pointer;
+    background: linear-gradient(135deg, rgba(0,240,255,0.2), rgba(0,240,255,0.05));
+    border: 1px solid var(--neon); color: var(--text);
+    padding: 7px 14px; border-radius: 4px;
+    font-weight: 700; font-size: 12px; letter-spacing: 1px;
+    transition: all 0.15s ease;
+  }
+  .shop-card-buy:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(0,240,255,0.4), rgba(0,240,255,0.1));
+    box-shadow: 0 0 14px rgba(0,240,255,0.5);
+  }
+  .shop-card-buy:disabled { opacity: 0.4; cursor: not-allowed; }
+  .shop-card-tag { font-size: 10px; color: var(--neon-3); letter-spacing: 2px; }
+
+  @media (max-width: 600px) {
+    .arm-grid { grid-template-columns: 1fr; }
+    .controls-hint { grid-template-columns: 1fr 1fr; }
+    .relic-card { width: 160px; min-height: 240px; padding: 16px 12px; }
+    .relic-icon { font-size: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="game-wrap">
+  <canvas id="game"></canvas>
+</div>
+
+<!-- ===================== HUD ===================== -->
+<div id="hud">
+  <div class="hud-top">
+    <div class="hud-block">
+      <div class="hud-label">امتیاز / Score</div>
+      <div class="hud-value" id="scoreVal">0</div>
+    </div>
+
+    <div class="hud-block enemies-left">
+      <div class="hud-label">دشمنان باقی‌مانده</div>
+      <div class="hud-value" id="enemiesVal">0</div>
+    </div>
+
+    <div class="hud-block" style="text-align:center">
+      <div class="hud-label">مرحله / Level</div>
+      <div class="hud-value" id="levelVal">1</div>
+    </div>
+
+    <div class="hud-block depth" id="depthBlock" style="display:none">
+      <div class="hud-label">عمق / Depth</div>
+      <div class="hud-value" id="depthVal">1</div>
+    </div>
+
+    <div class="hud-block aether" id="aetherBlock" style="display:none">
+      <div class="hud-label">Aether</div>
+      <div class="hud-value" id="aetherVal">0</div>
+    </div>
+
+    <div class="hud-block" id="hpBlock">
+      <div class="hud-label">HP / زره</div>
+      <div class="hp-row">
+        <span class="hp-num" id="hpNum">100</span><span class="hp-max" id="hpMax">/100</span>
+      </div>
+      <div class="hp-bar"><div class="hp-fill" id="hpFill"></div></div>
+    </div>
+
+    <div class="hud-block">
+      <div class="hud-label">جان / Lives</div>
+      <div id="lifeBelt"></div>
+    </div>
+
+    <div class="hud-actions">
+      <button class="icon-btn" id="muteBtn" title="صدا">🔊</button>
+      <button class="icon-btn" id="pauseBtn" title="توقف (P)">⏸</button>
+    </div>
+  </div>
+
+  <div id="powerupBanner"></div>
+  <div id="squadStrip" style="display:none"></div>
+  <div id="moduleTray"></div>
+  <div id="gadgetHud"></div>
+  <!-- On-screen action buttons (mobile / Telegram). Filled in by JS. -->
+  <div id="touchButtons"></div>
+</div>
+
+<!-- ===================== Pause overlay ===================== -->
+<div id="pauseOverlay">
+  <div class="title" style="font-size:clamp(40px,8vw,90px)">PAUSED</div>
+  <p class="tagline">برای ادامه روی «ادامه» بزن یا کلید P را فشار بده</p>
+  <button class="btn" id="resumeBtn">ادامه / Resume</button>
+  <button class="btn danger" id="quitBtn" style="margin-top:8px">خروج به منو</button>
+</div>
+
+<!-- ===================== Main menu ===================== -->
+<div id="menu" class="screen active">
+  <div class="title">NEON TANKS</div>
+  <div class="subtitle">نبرد زرهی</div>
+  <p class="tagline">
+    دو راه پیش روست: کمپین کلاسیک پنج‌مرحله‌ای، یا نزول بی‌نهایت در حالت
+    Roguelite با ماژول‌ها، باس‌ها و ارتقای متا. انتخاب با توست.
+  </p>
+  <div class="menu-modes">
+    <button class="btn" id="startBtn">کمپین / Campaign</button>
+    <button class="btn" id="rogueBtn" style="border-color:var(--neon-2);box-shadow:0 0 22px rgba(255,43,214,0.3),inset 0 0 16px rgba(255,43,214,0.08);background:linear-gradient(135deg,rgba(255,43,214,0.18),rgba(255,43,214,0.04))">Roguelite نزول</button>
+    <button class="btn gold" id="forgeBtn">Forge / ارتقا</button>
+    <button class="btn" id="shopBtn" style="border-color:var(--neon-3);box-shadow:0 0 22px rgba(182,255,58,0.3),inset 0 0 16px rgba(182,255,58,0.08);background:linear-gradient(135deg,rgba(182,255,58,0.18),rgba(182,255,58,0.04))">Shop / فروشگاه</button>
+    <button class="btn" id="squadBtn" style="border-color:#6effb0;box-shadow:0 0 22px rgba(110,255,176,0.3),inset 0 0 16px rgba(110,255,176,0.08);background:linear-gradient(135deg,rgba(110,255,176,0.18),rgba(110,255,176,0.04))">Squad / اسکواد</button>
+  </div>
+  <div id="squadPanel" class="squad-panel" style="display:none">
+    <div class="squad-title">اسکواد چندنفره</div>
+    <div id="squadStatus" class="squad-status">آفلاین — یک اسکواد بسازید یا به یکی بپیوندید</div>
+    <div id="squadMembers" class="squad-members"></div>
+    <div class="squad-actions">
+      <button class="btn" id="squadCreateBtn">ساخت اسکواد</button>
+      <button class="btn" id="squadJoinBtn">پیوستن با کد</button>
+      <button class="btn gold" id="squadInviteBtn">دعوت دوستان</button>
+      <button class="btn danger" id="squadLeaveBtn" style="display:none">ترک اسکواد</button>
+    </div>
+    <div class="squad-hint">با اکانت تلگرام وارد می‌شوید. هم‌تیمی‌ها در همان عمق کنار شما ظاهر می‌شوند و شکست باس، پاداش تیمی می‌دهد.</div>
+  </div>
+  <div class="controls-hint">
+    <div class="ctrl-card"><b>حرکت / Move</b>W A S D یا کلیدهای جهت‌دار</div>
+    <div class="ctrl-card"><b>نشانه / Aim</b>حرکت موس</div>
+    <div class="ctrl-card"><b>شلیک / Fire</b>کلیک چپ یا Space</div>
+    <div class="ctrl-card"><b>توقف / Pause</b>کلید P</div>
+  </div>
+</div>
+
+<!-- ===================== Forge / Hub (meta upgrades) ===================== -->
+<div id="forge" class="screen">
+  <div class="panel-title" style="margin-bottom:8px">FORGE — ارتقای متا</div>
+  <div class="aether-banner">
+    <span class="ae-label">AETHER SHARDS</span>
+    <span class="ae-val" id="forgeAether">0</span>
+  </div>
+  <div class="forge-grid" id="forgeGrid"></div>
+  <button class="btn" id="forgeBackBtn">بازگشت به منو</button>
+  <div style="margin-top:18px;font-size:12px;color:var(--muted);max-width:560px;text-align:center;line-height:1.6">
+    بهترین ران — عمق: <b id="forgeBestDepth" style="color:var(--neon)">0</b> ·
+    امتیاز: <b id="forgeBestScore" style="color:var(--neon)">0</b> ·
+    باس‌های کشته‌شده: <b id="forgeBossesKilled" style="color:var(--gold)">0</b>
+  </div>
+</div>
+
+<!-- ===================== Shop (gadgets) ===================== -->
+<div id="shop" class="screen">
+  <div class="panel-title" style="margin-bottom:8px">SHOP — فروشگاه گجت</div>
+  <div class="shop-coins-banner">
+    <span class="sc-label">CREDITS</span>
+    <span class="sc-val" id="shopCredits">0</span>
+  </div>
+  <div class="shop-grid" id="shopGrid"></div>
+  <button class="btn" id="shopBackBtn">بازگشت به منو</button>
+  <div style="margin-top:14px;font-size:12px;color:var(--muted);max-width:560px;text-align:center;line-height:1.7;direction:rtl">
+    گجت‌های خریداری‌شده دائمی هستند و به تانک تو اضافه می‌شن. برای فعال‌کردن گجت تیربار
+    از <b style="color:var(--neon)">راست‌کلیک موس</b> استفاده کن. گجت‌ها در هر دو حالت
+    کمپین و roguelite کار می‌کنند.
+  </div>
+</div>
+
+<!-- ===================== Relic choice (between rogue depths) ===================== -->
+<div id="relicChoice" class="screen">
+  <div class="relic-prompt" id="relicPrompt">یک ماژول انتخاب کن</div>
+  <div class="relic-sub" id="relicSub">DEPTH CLEARED</div>
+  <div class="relic-row" id="relicRow"></div>
+</div>
+
+<!-- ===================== Boss intro ===================== -->
+<div id="bossIntro" class="screen">
+  <div class="boss-warning">⚠ WARNING ⚠</div>
+  <div class="boss-name" id="bossIntroName">BOSS</div>
+  <div class="boss-subtitle" id="bossIntroSubtitle">depth —</div>
+  <div class="boss-health-mock"></div>
+</div>
+
+<!-- ===================== Armory (arm select) ===================== -->
+<div id="armory" class="screen">
+  <div class="panel">
+    <div class="panel-title">آرموری / Armory</div>
+    <div class="panel-sub" id="armorySub">مرحله ۱ — سلاح خود را انتخاب کن</div>
+    <div class="arm-grid" id="armGrid"></div>
+    <button class="btn gold" id="deployBtn" style="width:100%">اعزام به میدان نبرد</button>
+  </div>
+</div>
+
+<!-- ===================== Game over ===================== -->
+<div id="gameover" class="screen">
+  <div class="big-text">GAME OVER</div>
+  <p class="summary">امتیاز نهایی: <b id="finalScore">0</b></p>
+  <button class="btn" id="retryBtn">دوباره از اول</button>
+  <button class="btn danger" id="goMenuBtn">منوی اصلی</button>
+</div>
+
+<!-- ===================== Victory ===================== -->
+<div id="victory" class="screen">
+  <div class="big-text">VICTORY</div>
+  <p class="summary">تمام مراحل پشت سر گذاشته شد! امتیاز نهایی: <b id="victoryScore">0</b></p>
+  <button class="btn gold" id="vicMenuBtn">بازگشت به منو</button>
+</div>
+
+<!-- ===================== Rogue death ===================== -->
+<div id="rogueDeath" class="screen">
+  <div class="rogue-death-title">RUN ENDED</div>
+  <div class="rogue-death-sub" id="rogueDeathSub">تانک نابود شد</div>
+  <div class="rogue-stats-grid">
+    <div class="rogue-stat danger"><div class="lbl">عمق رسیده / Depth</div><div class="val" id="rsDepth">0</div></div>
+    <div class="rogue-stat"><div class="lbl">امتیاز / Score</div><div class="val" id="rsScore">0</div></div>
+    <div class="rogue-stat"><div class="lbl">کیل‌ها / Kills</div><div class="val" id="rsKills">0</div></div>
+    <div class="rogue-stat gold"><div class="lbl">Aether کسب‌شده</div><div class="val" id="rsAether">0</div></div>
+  </div>
+  <button class="btn" id="rogueRetryBtn">ران جدید</button>
+  <button class="btn gold" id="rogueForgeBtn" style="margin-top:8px">رفتن به Forge</button>
+  <button class="btn danger" id="rogueMenuBtn" style="margin-top:8px">منوی اصلی</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ===========================================================================
+ *  NEON TANKS — full game implementation (single file)
+ * =========================================================================== */
+
+/* ---------------------------- Tiny DOM helpers ---------------------------- */
+const $ = (id) => document.getElementById(id);
+const screens = {
+  menu: $('menu'),
+  armory: $('armory'),
+  gameover: $('gameover'),
+  victory: $('victory'),
+  forge: $('forge'),
+  relicChoice: $('relicChoice'),
+  bossIntro: $('bossIntro'),
+  rogueDeath: $('rogueDeath'),
+  shop: $('shop'),
+};
+function showScreen(name) {
+  Object.values(screens).forEach(s => s.classList.remove('active'));
+  if (screens[name]) screens[name].classList.add('active');
+}
+let toastTimer = null;
+function toast(msg, ms = 1800) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+/* ---------------------- Telegram Mini App integration ----------------------
+ * Wraps window.Telegram.WebApp. Degrades gracefully when the game is opened
+ * in a normal browser (tg === null) so it stays fully playable standalone. */
+const Tg = {
+  wa: null,          // Telegram.WebApp instance (or null in a plain browser)
+  user: null,        // { id, first_name, last_name, username, photo_url, ... }
+  initData: '',      // raw signed initData string — sent to server for auth
+  ready: false,
+  init() {
+    const wa = (window.Telegram && window.Telegram.WebApp) || null;
+    if (!wa || !wa.initDataUnsafe) { this.ready = false; return; }
+    this.wa = wa;
+    this.initData = wa.initData || '';
+    this.user = (wa.initDataUnsafe && wa.initDataUnsafe.user) || null;
+    try {
+      wa.ready();
+      wa.expand();
+      if (wa.disableVerticalSwipes) wa.disableVerticalSwipes();
+      if (wa.enableClosingConfirmation) wa.enableClosingConfirmation();
+      wa.setHeaderColor && wa.setHeaderColor('#04060c');
+      wa.setBackgroundColor && wa.setBackgroundColor('#04060c');
+    } catch (e) { /* older client — ignore unsupported calls */ }
+    this.ready = true;
+  },
+  // Display name for HUD / leaderboards; falls back to a guest label.
+  displayName() {
+    const u = this.user;
+    if (!u) return 'مهمان';
+    if (u.username) return '@' + u.username;
+    return [u.first_name, u.last_name].filter(Boolean).join(' ') || ('Player' + u.id);
+  },
+  photoUrl() { return (this.user && this.user.photo_url) || null; },
+  // Stable per-account id used to key saves & multiplayer identity.
+  accountId() { return this.user ? ('tg' + this.user.id) : null; },
+  // Haptic feedback — safe no-op off-platform.
+  haptic(kind = 'light') {
+    try {
+      const h = this.wa && this.wa.HapticFeedback;
+      if (!h) return;
+      if (kind === 'success' || kind === 'error' || kind === 'warning') h.notificationOccurred(kind);
+      else h.impactOccurred(kind); // 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'
+    } catch (e) {}
+  },
+  // Read a start param (e.g. squad invite code passed via t.me/bot/app?startapp=CODE)
+  startParam() {
+    return (this.wa && this.wa.initDataUnsafe && this.wa.initDataUnsafe.start_param) || null;
+  },
+  isTouch() {
+    return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+  },
+};
+Tg.init();
+
+/* --------------------------- Multiplayer (Net) ---------------------------
+ * Thin WebSocket client for co-op squads. Fully optional: if there is no
+ * server configured or the socket fails, Net stays in 'offline' state and the
+ * game plays exactly as single-player. All squad UI degrades gracefully.
+ *
+ * Wire protocol (JSON per line):
+ *   c->s  {t:'hello', initData, name, accountId}
+ *   c->s  {t:'squad.create'}                         -> s->c {t:'squad', code, members}
+ *   c->s  {t:'squad.join', code}                     -> s->c {t:'squad', code, members} | {t:'error', msg}
+ *   c->s  {t:'squad.leave'}
+ *   c->s  {t:'state', p:{x,y,hp,mx,ang,tang,depth,score}}   (throttled snapshot)
+ *   c->s  {t:'event', kind, data}                    (kill / boss / revive pings)
+ *   s->c  {t:'squad', code, members:[{id,name,leader}]}
+ *   s->c  {t:'snap', players:{id:{x,y,hp,mx,ang,tang,depth,score,name}}}
+ *   s->c  {t:'event', from, kind, data}
+ *   s->c  {t:'peer.left', id} / {t:'peer.joined', id, name}
+ */
+const Net = {
+  ws: null,
+  state: 'offline',        // 'offline' | 'connecting' | 'online'
+  url: null,               // set via configure(); null => never attempts to connect
+  selfId: null,
+  squadCode: null,
+  isLeader: false,
+  members: [],             // [{id, name, leader}]
+  peers: {},               // id -> { x,y,hp,mx,ang,tang,depth,score,name, rx,ry, last }
+  lastSendAt: 0,
+  sendHz: 12,              // snapshot rate (throttled)
+  _retry: 0,
+  _pending: [],            // queued messages while connecting
+
+  // Resolve server URL: explicit global, <meta>, or ?server= query param. No default.
+  resolveUrl() {
+    if (window.NEON_TANKS_SERVER) return window.NEON_TANKS_SERVER;
+    const m = document.querySelector('meta[name="mp-server"]');
+    if (m && m.content) return m.content;
+    try {
+      const q = new URLSearchParams(location.search).get('server');
+      if (q) return q;
+    } catch (e) {}
+    return null;
+  },
+
+  configure() {
+    this.url = this.resolveUrl();
+    this.selfId = Tg.accountId() || ('guest' + Math.abs(hashStr(navigator.userAgent + location.href)) % 100000);
+  },
+  connect() {
+    if (!this.url) { this.state = 'offline'; return false; }
+    if (this.state === 'online' || this.state === 'connecting') return true;
+    this.state = 'connecting';
+    try {
+      const ws = new WebSocket(this.url);
+      this.ws = ws;
+      ws.onopen = () => {
+        this.state = 'online';
+        this._retry = 0;
+        this.send({ t: 'hello', initData: Tg.initData || '', name: Tg.displayName(), accountId: this.selfId });
+        const q = this._pending; this._pending = [];
+        for (const m of q) this.send(m);
+        // Auto-join a squad if we were launched from an invite deep-link.
+        const code = Tg.startParam();
+        if (code && !this.squadCode) this.joinSquad(code);
+      };
+      ws.onmessage = (ev) => { try { this.onMessage(JSON.parse(ev.data)); } catch (e) {} };
+      ws.onclose = () => { this.state = 'offline'; this.ws = null; this.scheduleReconnect(); };
+      ws.onerror = () => { try { ws.close(); } catch (e) {} };
+      return true;
+    } catch (e) { this.state = 'offline'; return false; }
+  },
+  scheduleReconnect() {
+    if (!this.url || !this.squadCode) return;   // only auto-reconnect if we were in a squad
+    this._retry = Math.min(this._retry + 1, 6);
+    const delay = 500 * Math.pow(2, this._retry);   // 1s..32s backoff
+    setTimeout(() => { if (this.state === 'offline') this.connect(); }, delay);
+  },
+  send(msg) {
+    if (this.state !== 'online' || !this.ws) { if (this.state === 'connecting') this._pending.push(msg); return false; }
+    try { this.ws.send(JSON.stringify(msg)); return true; } catch (e) { return false; }
+  },
+  // ---- Squad API (each ensures a connection first) ----
+  createSquad() {
+    if (!this.url) { toast('سرور چندنفره پیکربندی نشده'); return; }
+    if (this.connect()) this.send({ t: 'squad.create' });
+  },
+  joinSquad(code) {
+    if (!code) return;
+    if (!this.url) { toast('سرور چندنفره پیکربندی نشده'); return; }
+    if (this.connect()) this.send({ t: 'squad.join', code: String(code).toUpperCase().trim() });
+  },
+  leaveSquad() {
+    this.send({ t: 'squad.leave' });
+    this.squadCode = null; this.isLeader = false; this.members = []; this.peers = {};
+    refreshSquadHud();
+  },
+  // Build a t.me deep link the player can share to invite friends.
+  inviteLink() {
+    if (!this.squadCode) return null;
+    const bot = window.NEON_TANKS_BOT || (document.querySelector('meta[name="mp-bot"]') || {}).content;
+    const app = window.NEON_TANKS_APP || (document.querySelector('meta[name="mp-app"]') || {}).content || 'play';
+    if (!bot) return null;
+    return `https://t.me/${bot}/${app}?startapp=${encodeURIComponent(this.squadCode)}`;
+  },
+  share() {
+    const link = this.inviteLink();
+    if (!link) { toast('ابتدا اسکواد بسازید'); return; }
+    const text = 'به اسکواد من در Neon Tanks بپیوند!';
+    if (Tg.wa && Tg.wa.openTelegramLink) {
+      Tg.wa.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
+    } else if (navigator.share) {
+      navigator.share({ title: 'Neon Tanks', text, url: link }).catch(() => {});
+    } else {
+      try { navigator.clipboard.writeText(link); toast('لینک دعوت کپی شد'); } catch (e) { toast(link); }
+    }
+    Tg.haptic('light');
+  },
+  // ---- Inbound ----
+  onMessage(m) {
+    switch (m.t) {
+      case 'squad':
+        this.squadCode = m.code;
+        this.members = m.members || [];
+        this.isLeader = !!(this.members.find(x => x.id === this.selfId) || {}).leader;
+        refreshSquadHud();
+        toast('اسکواد: ' + m.code);
+        Tg.haptic('success');
+        break;
+      case 'peer.joined':
+        if (m.id !== this.selfId) toast((m.name || 'یک بازیکن') + ' به اسکواد پیوست');
+        break;
+      case 'peer.left':
+        delete this.peers[m.id];
+        break;
+      case 'snap': {
+        const now = performance.now();
+        const ps = m.players || {};
+        for (const id in ps) {
+          if (id === this.selfId) continue;
+          const s = ps[id];
+          const p = this.peers[id] || (this.peers[id] = { rx: s.x, ry: s.y });
+          Object.assign(p, s); p.last = now;
+          if (p.rx == null) { p.rx = s.x; p.ry = s.y; }
+        }
+        for (const id in this.peers) if (!ps[id]) delete this.peers[id];
+        break;
+      }
+      case 'event':
+        this.onPeerEvent(m.from, m.kind, m.data || {});
+        break;
+      case 'error':
+        toast(m.msg || 'خطای اسکواد');
+        Tg.haptic('error');
+        break;
+    }
+  },
+  onPeerEvent(from, kind, data) {
+    const who = (this.peers[from] && this.peers[from].name) || 'هم‌تیمی';
+    if (kind === 'boss') {
+      // Squad incentive: everyone in the squad gets a cut when anyone downs a boss.
+      const cut = 8;
+      if (Game.mode === 'roguelite' && Game.state === 'battle') Rogue.aetherThisRun += cut;
+      else { Meta.aether += cut; saveMeta(); }
+      toast(`${who} یک باس را شکست داد! +${cut} Aether تیمی`);
+      Tg.haptic('success');
+    }
+    else if (kind === 'revive') toast(who + ' شما را احیا کرد');
+    else if (kind === 'depth') { /* teammate advanced — could sync */ }
+  },
+  // ---- Outbound helpers ----
+  sendState(force) {
+    if (this.state !== 'online' || !this.squadCode) return;
+    const now = performance.now();
+    if (!force && now - this.lastSendAt < 1000 / this.sendHz) return;
+    this.lastSendAt = now;
+    this.send({ t: 'state', p: {
+      x: Math.round(player.x), y: Math.round(player.y),
+      hp: Math.round(player.hp), mx: Math.round(player.maxHp),
+      ang: +player.angle.toFixed(2), tang: +player.turret.toFixed(2),
+      depth: Rogue.depth | 0, score: Game.score | 0,
+    }});
+  },
+  event(kind, data) { this.send({ t: 'event', kind, data: data || {} }); },
+  inSquad() { return this.state === 'online' && !!this.squadCode && this.members.length > 1; },
+  // Smoothly interpolate remote peer positions toward their latest snapshot.
+  interpolate(dt) {
+    const a = 1 - Math.pow(0.001, dt);   // exponential smoothing
+    for (const id in this.peers) {
+      const p = this.peers[id];
+      if (p.x == null) continue;
+      p.rx += (p.x - p.rx) * a;
+      p.ry += (p.y - p.ry) * a;
+    }
+  },
+};
+
+// Small string hash for guest ids (no crypto needed).
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; } return h; }
+Net.configure();
+
+
+
+const Audio = {
+  ctx: null,
+  muted: false,
+  ensure() {
+    if (!this.ctx) {
+      try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { this.ctx = null; }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  beep({ freq = 440, dur = 0.1, type = 'square', vol = 0.2, slide = 0 }) {
+    if (this.muted) return;
+    this.ensure();
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(gain); gain.connect(this.ctx.destination);
+    osc.start(t); osc.stop(t + dur);
+  },
+  shoot()    { this.beep({ freq: 720, dur: 0.08, type: 'square', vol: 0.12, slide: -300 }); },
+  enemyShoot(){ this.beep({ freq: 320, dur: 0.1,  type: 'sawtooth', vol: 0.07, slide: -120 }); },
+  explosion(){
+    if (this.muted) return; this.ensure(); if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    // Noise burst
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.35, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const filt = this.ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 800;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    src.connect(filt); filt.connect(g); g.connect(this.ctx.destination);
+    src.start(t);
+  },
+  pickup() { this.beep({ freq: 880, dur: 0.12, type: 'triangle', vol: 0.18, slide: 400 }); },
+  ui()     { this.beep({ freq: 520, dur: 0.05, type: 'square', vol: 0.1 }); },
+  hit()    { this.beep({ freq: 200, dur: 0.06, type: 'square', vol: 0.12, slide: -120 }); },
+  win()    {
+    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => this.beep({ freq: f, dur: 0.18, type: 'triangle', vol: 0.18 }), i * 130));
+  },
+  lose()   {
+    [400, 300, 200, 120].forEach((f, i) => setTimeout(() => this.beep({ freq: f, dur: 0.25, type: 'sawtooth', vol: 0.18 }), i * 160));
+  },
+};
+
+/* ------------------------------ Game canvas ------------------------------ */
+const canvas = $('game');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  // Telegram exposes a stable height that excludes its own chrome; prefer it.
+  const vpH = (Tg.wa && Tg.wa.viewportStableHeight) || window.innerHeight;
+  const vpW = window.innerWidth;
+  const touch = Tg.isTouch() || vpW < 820;
+  if (touch) {
+    // Mobile / Mini App: fill the whole viewport, no desktop framing.
+    W = vpW;
+    H = vpH;
+  } else {
+    const pad = 24;
+    W = Math.min(vpW - pad * 2, 1280);
+    H = Math.min(vpH - pad * 2, 760);
+  }
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  buildStaticLayers();
+}
+// Telegram fires this when its viewport changes (keyboard, expand animation).
+if (Tg.wa && Tg.wa.onEvent) {
+  Tg.wa.onEvent('viewportChanged', () => { resize(); initStars(); });
+}
+
+/* --------------- Static layer caches (rebuilt only on resize) ---------------
+ * The ground gradient, grid lines and vignettes never change between resizes,
+ * yet were being re-generated with createLinearGradient/createRadialGradient
+ * every single frame. Pre-rendering them to offscreen canvases turns each into
+ * a single drawImage call. */
+let bgLayer = null, vignetteLayer = null, menuVignetteLayer = null, dangerVignetteLayer = null;
+function makeLayer(draw) {
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.floor(W * DPR));
+  cv.height = Math.max(1, Math.floor(H * DPR));
+  const c = cv.getContext('2d');
+  c.setTransform(DPR, 0, 0, DPR, 0, 0);
+  draw(c);
+  return cv;
+}
+function buildStaticLayers() {
+  bgLayer = makeLayer((c) => {
+    const g = c.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#070b16');
+    g.addColorStop(1, '#04060c');
+    c.fillStyle = g;
+    c.fillRect(0, 0, W, H);
+    c.strokeStyle = 'rgba(0, 240, 255, 0.05)';
+    c.lineWidth = 1;
+    const gs = 48;
+    c.beginPath();
+    for (let x = 0; x <= W; x += gs) { c.moveTo(x, 0); c.lineTo(x, H); }
+    for (let y = 0; y <= H; y += gs) { c.moveTo(0, y); c.lineTo(W, y); }
+    c.stroke();
+  });
+  vignetteLayer = makeLayer((c) => {
+    const vg = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.4, W / 2, H / 2, Math.max(W, H) * 0.75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.6)');
+    c.fillStyle = vg;
+    c.fillRect(0, 0, W, H);
+  });
+  menuVignetteLayer = makeLayer((c) => {
+    const vg = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.8);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.75)');
+    c.fillStyle = vg;
+    c.fillRect(0, 0, W, H);
+  });
+  dangerVignetteLayer = makeLayer((c) => {
+    const vg = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.7);
+    vg.addColorStop(0, 'rgba(255,40,40,0)');
+    vg.addColorStop(1, 'rgba(255,30,30,0.45)');
+    c.fillStyle = vg;
+    c.fillRect(0, 0, W, H);
+  });
+}
+
+window.addEventListener('resize', () => { resize(); initStars(); });
+resize();
+
+/* ------------------------------ Input state ------------------------------ */
+const keys = Object.create(null);
+const mouse = { x: W / 2, y: H / 2, down: false, right: false };
+
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if (k === ' ') { keys[' '] = true; e.preventDefault(); }
+  if (k === 'p') togglePause();
+  // Gadget ability keys
+  if (Game.state === 'battle') {
+    if (k === 'e') { tryActivateAbility('E'); e.preventDefault(); }
+    if (k === 'r') { tryActivateAbility('R'); e.preventDefault(); }
+    if (k === 'f') { tryActivateAbility('F'); e.preventDefault(); }
+  }
+});
+window.addEventListener('keyup', (e) => {
+  const k = e.key.toLowerCase();
+  keys[k] = false;
+  if (k === ' ') keys[' '] = false;
+});
+canvas.addEventListener('mousemove', (e) => {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (e.clientX - r.left);
+  mouse.y = (e.clientY - r.top);
+});
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button === 0) { mouse.down = true; Audio.ensure(); }
+  if (e.button === 2) { mouse.right = true; Audio.ensure(); }
+});
+window.addEventListener('mouseup', (e) => {
+  if (e.button === 0) mouse.down = false;
+  if (e.button === 2) mouse.right = false;
+});
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* --------------------------- Touch controls ---------------------------------
+ * Dual floating joysticks + on-screen ability buttons for phones / Mini App.
+ *   - Touch in the LEFT half  -> movement stick (analog vector, magnitude used)
+ *   - Touch in the RIGHT half -> aim stick; holding it auto-fires the main gun
+ *   - DOM buttons (bottom-right) trigger the weapon gadget (RMB) and abilities
+ * The sticks are "floating": the base spawns wherever the finger lands, so the
+ * player never has to hunt for a fixed pad. Multi-touch aware via identifiers.
+ * Drawn on-canvas in render(); buttons live in #touchButtons (DOM). */
+const Touch = {
+  enabled: false,
+  moveX: 0, moveY: 0, moveMag: 0,
+  aimX: 0, aimY: 0, aimMag: 0,
+  firing: false,          // right stick held -> main gun
+  weaponFiring: false,    // weapon-gadget button held -> RMB equivalent
+  R: 62,                  // stick max radius (px)
+  DEAD: 8,                // dead-zone (px)
+  move: { id: null, ox: 0, oy: 0, cx: 0, cy: 0 },
+  aim:  { id: null, ox: 0, oy: 0, cx: 0, cy: 0 },
+  reset() {
+    this.moveX = this.moveY = this.moveMag = 0;
+    this.aimX = this.aimY = this.aimMag = 0;
+    this.firing = false;
+    this.move.id = this.aim.id = null;
+  },
+  _update(stick, cx, cy) {
+    let dx = cx - stick.ox, dy = cy - stick.oy;
+    const d = Math.hypot(dx, dy);
+    if (d > this.R) { dx = dx / d * this.R; dy = dy / d * this.R; }
+    stick.cx = stick.ox + dx; stick.cy = stick.oy + dy;
+    const mag = d < this.DEAD ? 0 : Math.min(1, (d - this.DEAD) / (this.R - this.DEAD));
+    return { nx: d > 0 ? dx / (d || 1) : 0, ny: d > 0 ? dy / (d || 1) : 0, mag };
+  },
+};
+
+if (Tg.isTouch()) {
+  Touch.enabled = true;
+  document.body.classList.add('touch');
+  // Swap the desktop control hints on the menu for touch equivalents.
+  addEventListener('DOMContentLoaded', () => {
+    const hint = document.querySelector('.controls-hint');
+    if (hint) hint.innerHTML = `
+      <div class="ctrl-card"><b>حرکت / Move</b>جوی‌استیک سمت چپ</div>
+      <div class="ctrl-card"><b>نشانه و شلیک</b>جوی‌استیک سمت راست</div>
+      <div class="ctrl-card"><b>تیربار</b>دکمه‌ی بنفش پایین راست</div>
+      <div class="ctrl-card"><b>گجت‌ها</b>دکمه‌های گرد کنار صفحه</div>`;
+  });
+  const rectXY = (t) => { const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top, inRect: t.clientY - r.top >= 0 }; };
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    Audio.ensure();
+    for (const t of e.changedTouches) {
+      const p = rectXY(t);
+      if (Game.state !== 'battle') { mouse.x = p.x; mouse.y = p.y; mouse.down = true; continue; }
+      const leftHalf = p.x < W * 0.5;
+      if (leftHalf && Touch.move.id === null) {
+        Touch.move.id = t.identifier; Touch.move.ox = p.x; Touch.move.oy = p.y; Touch.move.cx = p.x; Touch.move.cy = p.y;
+      } else if (!leftHalf && Touch.aim.id === null) {
+        Touch.aim.id = t.identifier; Touch.aim.ox = p.x; Touch.aim.oy = p.y; Touch.aim.cx = p.x; Touch.aim.cy = p.y;
+        Touch.firing = true;
+      }
+    }
+  }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      const p = rectXY(t);
+      if (Game.state !== 'battle') { mouse.x = p.x; mouse.y = p.y; continue; }
+      if (t.identifier === Touch.move.id) {
+        const r = Touch._update(Touch.move, p.x, p.y);
+        Touch.moveX = r.nx * r.mag; Touch.moveY = r.ny * r.mag; Touch.moveMag = r.mag;
+      } else if (t.identifier === Touch.aim.id) {
+        const r = Touch._update(Touch.aim, p.x, p.y);
+        Touch.aimX = r.nx; Touch.aimY = r.ny; Touch.aimMag = r.mag;
+      }
+    }
+  }, { passive: false });
+  const endTouch = (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (Game.state !== 'battle') { mouse.down = false; continue; }
+      if (t.identifier === Touch.move.id) { Touch.move.id = null; Touch.moveX = Touch.moveY = Touch.moveMag = 0; }
+      else if (t.identifier === Touch.aim.id) { Touch.aim.id = null; Touch.aimMag = 0; Touch.firing = false; }
+    }
+  };
+  canvas.addEventListener('touchend', endTouch, { passive: false });
+  canvas.addEventListener('touchcancel', endTouch, { passive: false });
+}
+
+/* --------------------------------- Utils --------------------------------- */
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const randi = (a, b) => Math.floor(rand(a, b + 1));
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+const dist2 = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; };
+const lerp = (a, b, t) => a + (b - a) * t;
+function angleLerp(a, b, t) {
+  let d = ((b - a + Math.PI) % TAU) - Math.PI;
+  if (d < -Math.PI) d += TAU;
+  return a + d * t;
+}
+
+/* ----------------------------- World entities ----------------------------- */
+const player = {
+  x: 0, y: 0, r: 16, angle: 0, turret: 0,
+  speed: 170, vx: 0, vy: 0,
+  hp: 100, maxHp: 100, lives: 5, maxLives: 5,
+  cooldown: 0, fireRate: 0.28, bulletDmg: 25, bulletSpd: 520,
+  invuln: 0, alive: true, treadPhase: 0,
+  weapon: null,
+  // gadget state
+  gadgetCooldown: 0,       // current cooldown for equipped weapon gadget
+  gadgetAmmo: -1,           // -1 = unlimited
+  gadgetCharges: 0,         // for ability gadgets like repair
+};
+let bullets = [];      // {x,y,vx,vy,dmg,life,from,r,color,pierce,hitsLeft}
+let enemies = [];
+let drones = [];      // suicide drones — array of drone objects
+let particles = [];
+let pickups = [];     // health / shield / rapidfire
+let decals = [];      // scorch marks left after explosions
+let clouds = [];      // background drifting clouds
+let stars = [];       // twinkling background stars
+let shockwaves = [];  // expanding neon rings from explosions
+let hazards = [];     // telegraphed ground AoE (Warden mortars): warn then detonate
+let shake = 0;
+
+/* ----------------------------- Weapon defs ----------------------------- */
+const WEAPONS = [
+  {
+    id: 'cannon', name: 'توپ استاندارد', icon: '🎯',
+    desc: 'متعادل، نرخ آتش متوسط، آسیب خوب.',
+    fireRate: 0.28, bulletDmg: 25, bulletSpd: 520, spread: 0.02, burst: 1,
+    bars: { rate: 0.55, dmg: 0.6, spd: 0.65 },
+  },
+  {
+    id: 'rapid', name: 'مسلسل سریع', icon: '⚡',
+    desc: 'نرخ آتش بسیار بالا، آسیب کمتر، عالی برای دشمنان سبک.',
+    fireRate: 0.1, bulletDmg: 12, bulletSpd: 620, spread: 0.09, burst: 1,
+    bars: { rate: 0.95, dmg: 0.3, spd: 0.75 },
+  },
+  {
+    id: 'shotgun', name: 'شاتگان پخش‌کن', icon: '💥',
+    desc: 'سه گلوله در یک شلیک، کوتاه‌برد اما ویرانگر.',
+    fireRate: 0.5, bulletDmg: 16, bulletSpd: 480, spread: 0.28, burst: 3,
+    bars: { rate: 0.35, dmg: 0.85, spd: 0.55 },
+  },
+  {
+    id: 'rail', name: 'ریل‌گان سنگین', icon: '🔮',
+    desc: 'آسیب بسیار بالا و سرعت زیاد، اما شلیک کند.',
+    fireRate: 0.7, bulletDmg: 60, bulletSpd: 820, spread: 0.0, burst: 1,
+    bars: { rate: 0.2, dmg: 1.0, spd: 0.95 },
+  },
+];
+
+/* ========================================================================
+   MODULE REGISTRY  (Roguelite relics)
+   Each entry: { id, name, desc, rarity, icon, apply(p, ctx) }
+   - apply runs when module is picked AND on run-start (idempotent for stackable)
+   - ctx.moduleCount(id) used to compute stacking
+   ======================================================================== */
+const RARITY_ORDER = { common: 0, rare: 1, epic: 2, legendary: 3 };
+const MODULES = [
+  // ---------------- OFFENSE ----------------
+  { id: 'splitshot', name: 'اسپلیت‌شات', rarity: 'rare', icon: '🔱',
+    desc: 'هر شلیک، ۲ گلوله اضافی در زاویه پخش می‌کند.',
+    apply(p, ctx) {
+      p.weaponMult = p.weaponMult || {};
+      p.weaponMult.extraBullets = (p.weaponMult.extraBullets || 0) + 2;
+    }},
+  { id: 'heavy', name: 'گلوله سنگین', rarity: 'common', icon: '🪨',
+    desc: 'آسیب هر گلوله +۳۰٪.',
+    apply(p, ctx) {
+      p.dmgMult = (p.dmgMult || 1) * 1.30;
+    }},
+  { id: 'piercing', name: 'گلوله نفوذی', rarity: 'rare', icon: '➹',
+    desc: 'گلوله‌ها از دشمنان عبور می‌کنند (تا ۲ دشمن).',
+    apply(p, ctx) {
+      p.weaponMult = p.weaponMult || {};
+      p.weaponMult.pierce = (p.weaponMult.pierce || 0) + 2;
+    }},
+  { id: 'velocity', name: 'شارژ سرعت', rarity: 'common', icon: '💨',
+    desc: 'سرعت گلوله‌ها +۲۵٪.',
+    apply(p, ctx) {
+      p.spdMult = (p.spdMult || 1) * 1.25;
+    }},
+  { id: 'critical', name: 'موتور بحرانی', rarity: 'epic', icon: '🎯',
+    desc: '۲۰٪ شانس شلیک بحرانی با آسیب ۲برابر.',
+    apply(p, ctx) {
+      p.weaponMult = p.weaponMult || {};
+      p.weaponMult.critChance = 0.20;
+    }},
+  { id: 'overcharge', name: 'اضافه‌بار', rarity: 'rare', icon: '⚡',
+    desc: 'نرخ آتش +۳۰٪.',
+    apply(p, ctx) {
+      p.fireRateMult = (p.fireRateMult || 1) * 0.70; // lower cooldown = faster
+    }},
+  // ---------------- DEFENSE ----------------
+  { id: 'plating', name: 'ورق تقویتی', rarity: 'common', icon: '🛡',
+    desc: 'حداکثر جان +۳۰.',
+    apply(p, ctx) {
+      p.maxHp += 30; p.hp = Math.min(p.maxHp, p.hp + 30);
+    }},
+  { id: 'shield', name: 'سپر تطبیقی', rarity: 'rare', icon: '✨',
+    desc: 'در شروع هر عمق ۳ ثانیه نامرئی.',
+    apply(p, ctx) { /* handled in beginRogueDepth */ }},
+  { id: 'vampire', name: 'گلوله خونی', rarity: 'epic', icon: '🩸',
+    desc: 'هر کیل، ۵ جان بازگردان.',
+    apply(p, ctx) {
+      p.lifestealPerKill = (p.lifestealPerKill || 0) + 5;
+    }},
+  { id: 'treads', name: 'زشیم زبر', rarity: 'common', icon: '⛓',
+    desc: 'آسیب تصادف دشمن ۵۰٪ کمتر.',
+    apply(p, ctx) {
+      p.ramResist = (p.ramResist || 1) * 0.5;
+    }},
+  { id: 'secondwind', name: 'نفس دوم', rarity: 'legendary', icon: '🌀',
+    desc: 'یک‌بار هنگام مرگ با ۳۰٪ جان بازمی‌گردی.',
+    apply(p, ctx) {
+      Rogue.usedSecondWind = false;
+    }},
+  // ---------------- AGILITY ----------------
+  { id: 'nitro', name: 'نیترو', rarity: 'common', icon: '🚀',
+    desc: 'سرعت حرکت +۱۵٪.',
+    apply(p, ctx) {
+      p.speedMult = (p.speedMult || 1) * 1.15;
+    }},
+  { id: 'phase', name: 'جابه‌جایی فازی', rarity: 'epic', icon: '👻',
+    desc: '۱۵٪ شانس داج گلوله دشمن.',
+    apply(p, ctx) {
+      p.dodge = (p.dodge || 0) + 0.15;
+    }},
+  { id: 'berserker', name: 'برسرکر', rarity: 'rare', icon: '😡',
+    desc: 'زیر ۳۰٪ جان، آسیب +۵۰٪.',
+    apply(p, ctx) {
+      p.berserker = true;
+    }},
+  // ---------------- ECONOMY / SPECIAL ----------------
+  { id: 'greed', name: 'طمع', rarity: 'common', icon: '💎',
+    desc: 'امتیاز +۲۵٪ و Aether +۲۵٪.',
+    apply(p, ctx) {
+      Rogue.scoreMult = (Rogue.scoreMult || 1) * 1.25;
+      Rogue.aetherMult = (Rogue.aetherMult || 1) * 1.25;
+    }},
+  { id: 'scavenger', name: 'جاودان', rarity: 'rare', icon: '🧲',
+    desc: 'احتمال دراپ پیکاپ دوبرابر.',
+    apply(p, ctx) {
+      p.pickupMult = (p.pickupMult || 1) * 2;
+    }},
+  { id: 'glasscannon', name: 'توپ شیشه‌ای', rarity: 'legendary', icon: '🔮',
+    desc: 'آسیب ۲برابر، اما حداکثر جان نصف.',
+    apply(p, ctx) {
+      p.dmgMult = (p.dmgMult || 1) * 2;
+      p.maxHp = Math.max(20, Math.floor(p.maxHp * 0.5));
+      p.hp = Math.min(p.hp, p.maxHp);
+    }},
+];
+const MODULES_BY_ID = Object.fromEntries(MODULES.map(m => [m.id, m]));
+
+/* Starter modules unlocked via Forge */
+const STARTER_MODULE_BY_LEVEL = [null, 'splitshot', 'heavy', 'vampire'];
+
+/* ----------------------------- Enemy defs ----------------------------- */
+const ENEMY_TYPES = {
+  light: {
+    r: 13, hp: 30, speed: 130, color: '#ff6b6b', accent: '#ffd23f',
+    fireRate: 1.4, bulletDmg: 12, bulletSpd: 320, range: 320, score: 100,
+    ai: 'swarm', // rush player and circle
+  },
+  medium: {
+    r: 16, hp: 60, speed: 95, color: '#c77dff', accent: '#00f0ff',
+    fireRate: 1.1, bulletDmg: 18, bulletSpd: 360, range: 380, score: 150,
+    ai: 'kite', // keep distance, shoot
+  },
+  heavy: {
+    r: 20, hp: 130, speed: 60, color: '#4ea8de', accent: '#b6ff3a',
+    fireRate: 1.6, bulletDmg: 28, bulletSpd: 300, range: 340, score: 250,
+    ai: 'push', // push straight toward player, tanky
+  },
+};
+
+/* ========================================================================
+   MINI-BOSSES  (elite tier between regular enemies and full bosses)
+   Spawn on depths where depth % 5 === 3 (i.e. 3, 8, 13, ...). A single tough
+   enemy with a nameplate + HP bar. Reuses regular enemy AI but hits harder,
+   has far more HP, and drops a guaranteed pickup on death.
+   ======================================================================== */
+const MINIBOSS_TYPES = {
+  bruiser: {
+    name: 'BRUISER', subtitle: 'گاومیش زرهی',
+    r: 26, hp: 420, speed: 78, color: '#ff8c42', accent: '#ffe08a',
+    fireRate: 0.9, bulletDmg: 26, bulletSpd: 360, range: 420, score: 600,
+    ai: 'push', volley: 5,
+  },
+  seer: {
+    name: 'SEER', subtitle: 'چشم روان',
+    r: 24, hp: 360, speed: 92, color: '#c77dff', accent: '#00f0ff',
+    fireRate: 0.7, bulletDmg: 20, bulletSpd: 420, range: 480, score: 700,
+    ai: 'kite', volley: 8,   // ring burst
+  },
+  reaver: {
+    name: 'REAVER', subtitle: 'دروگر تیز',
+    r: 22, hp: 300, speed: 150, color: '#ff3b6b', accent: '#fff',
+    fireRate: 0.5, bulletDmg: 22, bulletSpd: 460, range: 380, score: 800,
+    ai: 'swarm', volley: 3,
+  },
+};
+function pickMiniBoss(depth) {
+  const order = ['bruiser', 'seer', 'reaver'];
+  return order[Math.floor((depth - 3) / 5) % order.length];
+}
+
+/* ========================================================================
+   SUICIDE DRONES  (kamikaze enemies)
+   Behavior:
+   1. Spawn at edge, slowly approach player.
+   2. When within lockRange: lock onto player's CURRENT position (frozen).
+   3. Telegraph briefly (red blink), then DIVE toward the locked point.
+   4. Explode at the locked point (or on contact with player).
+   Player can dodge by moving away from the locked point in time.
+   Only gadget bullets (tag from='gadget') can destroy drones — main weapon
+   bullets pass through harmlessly.
+   ======================================================================== */
+const DRONE_TYPES = {
+  scout: {
+    r: 9, hp: 1, speed: 145, color: '#ff6b6b', accent: '#ffd23f',
+    lockRange: 220, telegraph: 0.55, diveSpeed: 380,
+    explosion: 1.0, contactDmg: 22, score: 120,
+  },
+  striker: {
+    r: 13, hp: 1, speed: 120, color: '#ff3b3b', accent: '#ffd23f',
+    lockRange: 260, telegraph: 0.7, diveSpeed: 340,
+    explosion: 1.6, contactDmg: 38, score: 200,
+  },
+  bomber: {
+    r: 18, hp: 1, speed: 95, color: '#ff8800', accent: '#fff5cf',
+    lockRange: 300, telegraph: 0.9, diveSpeed: 280,
+    explosion: 2.4, contactDmg: 60, score: 320,
+  },
+};
+
+/* ========================================================================
+   GADGETS  (tank-mounted special weapons bought in Shop)
+   Persistent across runs (owned in Meta.ownedGadgets).
+   ======================================================================== */
+const GADGETS = [
+  {
+    id: 'autocannon', name: 'تیربار خودکار', icon: '🔫',
+    desc: 'تیربار روی تانک سوار میشه. راست‌کلیک برای شلیک. این تنها سلاحیه که پهپادهای انتحاری رو نابود می‌کنه.',
+    cost: 0, kind: 'weapon',
+    // weapon gadget config
+    fireRate: 0.11, bulletDmg: 8, bulletSpd: 720, spread: 0.05,
+    cooldownLabel: 'AUTOCANNON', key: 'RMB',
+  },
+  {
+    id: 'scattercannon', name: 'تیربار پخش‌کن', icon: '⚡',
+    desc: 'تیربار پخش‌کن: ۵ گلوله در هر شلیک، آسیب بالا اما کوتاه‌برد. عالی برای پهپادهای گروهی.',
+    cost: 600, kind: 'weapon',
+    fireRate: 0.32, bulletDmg: 9, bulletSpd: 620, spread: 0.36, burst: 5,
+    cooldownLabel: 'SCATTER', key: 'RMB',
+  },
+  {
+    id: 'railpearl', name: 'مروارید ریل', icon: '🔮',
+    desc: 'تک‌گلوله قدرتمند با penetration. عالی برای پهپادهای زرهی و ردیف‌های متراکم.',
+    cost: 1200, kind: 'weapon',
+    fireRate: 0.55, bulletDmg: 30, bulletSpd: 920, spread: 0, pierce: 3,
+    cooldownLabel: 'RAILPEARL', key: 'RMB',
+  },
+  {
+    id: 'emp', name: 'پالس EMP', icon: '💥',
+    desc: 'پالس الکترومغناطیسی: همه پهپادهای روی صفحه رو نابود می‌کنه. کلید E برای فعال‌کردن.',
+    cost: 900, kind: 'ability',
+    cooldown: 12, cooldownLabel: 'EMP', key: 'E',
+  },
+  {
+    id: 'repairkit', name: 'کیت تعمیر', icon: '✚',
+    desc: 'تعمیر فوری: +۴۰ HP. کلید R برای فعال‌کردن. مصرف یک شارژ.',
+    cost: 500, kind: 'ability',
+    cooldown: 0, chargesPerRun: 3, cooldownLabel: 'REPAIR', key: 'R',
+  },
+  {
+    id: 'shieldboost', name: 'سپر اضطراری', icon: '✨',
+    desc: '۳ ثانیه نامرئی شدن فوری. کلید F برای فعال‌کردن.',
+    cost: 800, kind: 'ability',
+    cooldown: 18, cooldownLabel: 'SHIELD', key: 'F',
+  },
+];
+const GADGETS_BY_ID = Object.fromEntries(GADGETS.map(g => [g.id, g]));
+
+/* ========================================================================
+   BOSS REGISTRY  (Roguelite bosses)
+   Each boss has its own pattern engine driven by updateBoss().
+   `pickBossForDepth(depth)` chooses which boss and scales it.
+   ======================================================================== */
+const BOSSES = {
+  juggernaut: {
+    id: 'juggernaut', name: 'JUGGERNAUT', subtitle: 'چکش زرهی',
+    color: '#4ea8de', accent: '#b6ff3a', bodyColor: '#0a2a3a',
+    r: 36, baseHp: 900, baseSpeed: 70, contactDmg: 22, score: 1000,
+  },
+  hive: {
+    id: 'hive', name: 'HIVE LORD', subtitle: 'مادر احضارگر',
+    color: '#c77dff', accent: '#00f0ff', bodyColor: '#2a0f3a',
+    r: 40, baseHp: 1100, baseSpeed: 45, contactDmg: 18, score: 1300,
+  },
+  duelist: {
+    id: 'duelist', name: 'GLASS DUELIST', subtitle: 'شمشیرزن شیشه‌ای',
+    color: '#ffd23f', accent: '#fff5cf', bodyColor: '#3a2c08',
+    r: 30, baseHp: 750, baseSpeed: 110, contactDmg: 26, score: 1500,
+  },
+  warden: {
+    id: 'warden', name: 'THE WARDEN', subtitle: 'توپخانه‌ی محاصره',
+    color: '#ff9e3d', accent: '#ffe08a', bodyColor: '#3a1e08',
+    r: 42, baseHp: 1400, baseSpeed: 32, contactDmg: 20, score: 1800,
+  },
+  phantom: {
+    id: 'phantom', name: 'PHANTOM', subtitle: 'قاتل نامرئی',
+    color: '#00f0ff', accent: '#b6ff3a', bodyColor: '#04222a',
+    r: 28, baseHp: 900, baseSpeed: 130, contactDmg: 30, score: 2100,
+  },
+};
+function pickBossForDepth(depth) {
+  // 5-depth cycle through all boss types: 5=juggernaut, 10=hive, 15=duelist,
+  // 20=warden, 25=phantom, 30=juggernaut, ...
+  const order = ['juggernaut', 'hive', 'duelist', 'warden', 'phantom'];
+  const idx = Math.floor((depth - 5) / 5) % order.length;
+  return order[idx];
+}
+function bossScale(depth) {
+  // each cycle (15 depths) doubles HP/damage
+  const cycle = Math.floor((depth - 5) / 15);
+  return { hp: Math.pow(1.7, cycle), dmg: Math.pow(1.4, cycle) };
+}
+
+/* ----------------------------- Level config ----------------------------- */
+const LEVELS = [
+  { enemies: [{ type: 'light', count: 5 }], pickups: 1, name: 'مقدماتی' },
+  { enemies: [{ type: 'light', count: 6 }, { type: 'medium', count: 2 }], pickups: 1, name: 'گشت‌زنی' },
+  { enemies: [{ type: 'light', count: 6 }, { type: 'medium', count: 4 }], pickups: 2, name: 'درگیری' },
+  { enemies: [{ type: 'medium', count: 5 }, { type: 'heavy', count: 2 }], pickups: 2, name: 'تهاجمی' },
+  { enemies: [{ type: 'light', count: 8 }, { type: 'medium', count: 5 }, { type: 'heavy', count: 3 }], pickups: 3, name: 'نبرد نهایی' },
+];
+
+/* ----------------------------- Game state ----------------------------- */
+const Game = {
+  state: 'menu',     // menu | armory | battle | paused | gameover | victory
+                     // | forge | relicchoice | bossintro | roguedeath
+  mode: 'campaign',  // 'campaign' | 'roguelite'
+  levelIndex: 0,
+  score: 0,
+  selectedWeapon: 'cannon',
+  enemiesRemaining: 0,
+  enemiesToSpawn: 0,
+  spawnTimer: 0,
+  levelClearDelay: 0,
+  // fixed timestep
+  acc: 0,
+  last: 0,
+  started: false,
+  // boss tracking
+  bossActive: false,
+  bossPendingChoice: false,
+};
+
+/* ----------------------------- Rogue run state ----------------------------- */
+const Rogue = {
+  depth: 0,            // current depth (1-indexed when in battle)
+  lives: 1,            // permadeath: 1 life by default (extra via meta)
+  maxLives: 1,
+  aetherThisRun: 0,    // shards earned this run (not yet banked)
+  modules: [],         // array of module ids currently active
+  bossType: null,      // boss type pending or active
+  bossRef: null,       // live boss object during boss battle
+  pendingBossIntro: false,
+  isBossDepth: false,
+  isMiniBossDepth: false,
+  runStats: { kills: 0, bossesKilled: 0, score: 0, maxDepth: 0, miniBossesKilled: 0 },
+};
+
+/* ----------------------------- Meta progression (persisted) ----------------------------- */
+const SAVE_KEY = 'neon_tanks_save_v1';
+const META_DEFAULT = {
+  aether: 0,
+  credits: 200,         // starting credits for shop
+  ownedGadgets: ['autocannon'], // free starter gadget
+  upgrades: {
+    hp: 0,        // 0..5, +10 HP each
+    speed: 0,     // 0..5, +5% speed each
+    damage: 0,    // 0..5, +5% dmg each
+    life: 0,      // 0..3, +1 life each
+    starter: 0,   // 0..3, unlock starter modules: 0=none,1=splitshot,2=+heavy,3=+vampire
+  },
+  bestDepth: 0,
+  bestScore: 0,
+  bestKills: 0,
+  bossesKilled: 0,
+  runsCompleted: 0,
+  gadgetSeenIntro: {}, // map of gadget.id → true once tutorial shown
+};
+let Meta = loadMeta();
+
+function loadMeta() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return JSON.parse(JSON.stringify(META_DEFAULT));
+    const m = JSON.parse(raw);
+    // merge with defaults to be robust to schema additions
+    const merged = Object.assign(JSON.parse(JSON.stringify(META_DEFAULT)), m,
+      { upgrades: Object.assign({}, META_DEFAULT.upgrades, m.upgrades || {}) });
+    if (!Array.isArray(merged.ownedGadgets)) merged.ownedGadgets = ['autocannon'];
+    if (typeof merged.credits !== 'number') merged.credits = 200;
+    if (!merged.gadgetSeenIntro) merged.gadgetSeenIntro = {};
+    return merged;
+  } catch (e) {
+    return JSON.parse(JSON.stringify(META_DEFAULT));
+  }
+}
+function saveMeta() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(Meta)); } catch (e) { /* ignore */ }
+}
+function ownsGadget(id) { return Meta.ownedGadgets.includes(id); }
+
+/* ----------------------------- Particle factory ----------------------------- */
+function spawnExplosion(x, y, color = '#ff8a3d', power = 1) {
+  const n = Math.floor(20 * power) + 12;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * TAU;
+    const s = rand(60, 320) * power;
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: rand(0.4, 1.1), age: 0,
+      size: rand(2, 6) * power, color, kind: 'spark', drag: 0.92,
+    });
+  }
+  // smoke
+  for (let i = 0; i < 10 * power; i++) {
+    const a = Math.random() * TAU;
+    const s = rand(20, 80);
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: rand(0.8, 1.8), age: 0,
+      size: rand(6, 14) * power, color: 'rgba(60,60,70,0.6)', kind: 'smoke', drag: 0.96,
+    });
+  }
+  // glowing embers that linger
+  for (let i = 0; i < 6 * power; i++) {
+    const a = Math.random() * TAU;
+    const s = rand(20, 120) * power;
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 30,
+      life: rand(1.0, 2.0), age: 0,
+      size: rand(1.5, 3), color: '#ffd23f', kind: 'ember', drag: 0.95,
+    });
+  }
+  // flash
+  particles.push({ x, y, vx: 0, vy: 0, life: 0.18, age: 0, size: 60 * power, color: '#fff5cf', kind: 'flash', drag: 1 });
+  // expanding neon shockwave ring
+  shockwaves.push({ x, y, r: 8, maxR: 90 * power, life: 0.55, age: 0, color, lineW: 3 * power });
+  shake = Math.min(22, shake + 8 * power);
+  decals.push({ x, y, r: 22 * power, alpha: 0.45 });
+  Audio.explosion();
+}
+
+function spawnMuzzle(x, y, ang, color) {
+  for (let i = 0; i < 6; i++) {
+    const a = ang + rand(-0.3, 0.3);
+    const s = rand(120, 260);
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: rand(0.12, 0.25), age: 0,
+      size: rand(2, 4), color, kind: 'spark', drag: 0.9,
+    });
+  }
+}
+
+function spawnHit(x, y, color) {
+  for (let i = 0; i < 8; i++) {
+    const a = Math.random() * TAU;
+    const s = rand(40, 140);
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: rand(0.2, 0.5), age: 0,
+      size: rand(1.5, 3.5), color, kind: 'spark', drag: 0.9,
+    });
+  }
+}
+
+/* ----------------------------- Clouds (background) ----------------------------- */
+function initClouds() {
+  clouds = [];
+  for (let i = 0; i < 7; i++) {
+    clouds.push({
+      x: Math.random() * W, y: Math.random() * H * 0.6,
+      r: rand(60, 140), spd: rand(4, 14),
+      a: rand(0.04, 0.1), hue: rand(180, 220),
+    });
+  }
+  initStars();
+}
+
+/* ----------------------------- Stars (twinkling background) ----------------------------- */
+function initStars() {
+  stars = [];
+  const n = Math.floor((W * H) / 14000);
+  for (let i = 0; i < n; i++) {
+    const hue = Math.random() < 0.2 ? rand(280, 320) : rand(180, 210);
+    stars.push({
+      x: Math.random() * W, y: Math.random() * H,
+      size: rand(0.5, 1.8),
+      phase: Math.random() * TAU,
+      speed: rand(1.2, 3.2),
+      color: `hsl(${Math.round(hue)}, 90%, 78%)`, // precomputed — no string alloc per frame
+    });
+  }
+}
+
+function drawStars() {
+  const t = performance.now() * 0.001;
+  ctx.save();
+  for (const s of stars) {
+    const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * s.speed + s.phase));
+    ctx.globalAlpha = tw * 0.55;
+    ctx.fillStyle = s.color;
+    const r = s.size * tw;
+    // rect instead of arc: visually identical at ~1px, much cheaper to fill
+    ctx.fillRect(s.x - r, s.y - r, r * 2, r * 2);
+  }
+  ctx.restore();
+}
+
+/* ----------------------------- Shockwave rings ----------------------------- */
+function updateShockwaves(dt) {
+  for (let i = shockwaves.length - 1; i >= 0; i--) {
+    const s = shockwaves[i];
+    s.age += dt;
+    if (s.age >= s.life) { shockwaves.splice(i, 1); continue; }
+    const t = s.age / s.life;
+    s.r = 8 + (s.maxR - 8) * (1 - Math.pow(1 - t, 3)); // ease-out
+  }
+}
+
+function drawShockwaves() {
+  for (const s of shockwaves) {
+    const t = s.age / s.life;
+    ctx.save();
+    ctx.globalAlpha = (1 - t) * 0.8;
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = Math.max(0.5, s.lineW * (1 - t));
+    ctx.shadowColor = s.color; ctx.shadowBlur = 16;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.stroke();
+    // inner white ring
+    ctx.globalAlpha = (1 - t) * 0.4;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r * 0.85, 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ----------------------------- Bullets ----------------------------- */
+function fireBullet(x, y, ang, dmg, spd, from, color) {
+  const b = {
+    x, y,
+    vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+    dmg, life: 1.6, from, r: from === 'player' ? 3.5 : 4, color,
+    age: 0, pierce: 0, hitsLeft: 0,
+  };
+  if (b.pierce) b.hitsLeft = b.pierce;
+  bullets.push(b);
+  return b;
+}
+
+/* ----------------------------- Pickups ----------------------------- */
+function spawnPickup() {
+  const types = ['health', 'rapid', 'shield'];
+  const t = types[randi(0, types.length - 1)];
+  pickups.push({
+    x: rand(60, W - 60), y: rand(80, H - 60),
+    type: t, r: 14, age: 0, bob: Math.random() * TAU,
+  });
+}
+
+function applyPickup(p) {
+  if (p.type === 'health') {
+    player.hp = Math.min(player.maxHp, player.hp + 40);
+    showBanner('+۴۰ جان');
+  } else if (p.type === 'rapid') {
+    player.fireRate = Math.max(0.06, player.fireRate * 0.5);
+    player.rapidTimer = 6;
+    showBanner('شلیک سریع فعال');
+  } else if (p.type === 'shield') {
+    player.invuln = Math.max(player.invuln, 4);
+    showBanner('سپر فعال');
+  }
+  Audio.pickup();
+}
+
+let bannerTimer = null;
+function showBanner(text) {
+  const b = $('powerupBanner');
+  b.textContent = text;
+  b.classList.add('show');
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => b.classList.remove('show'), 1400);
+}
+
+/* ----------------------------- Player update ----------------------------- */
+function updatePlayer(dt) {
+  if (!player.alive) return;
+  // Movement
+  let ix = 0, iy = 0;
+  if (keys['w'] || keys['arrowup']) iy -= 1;
+  if (keys['s'] || keys['arrowdown']) iy += 1;
+  if (keys['a'] || keys['arrowleft']) ix -= 1;
+  if (keys['d'] || keys['arrowright']) ix += 1;
+  // Analog touch stick (magnitude preserved so a light push = slow move)
+  if (Touch.moveMag > 0.08) { ix += Touch.moveX; iy += Touch.moveY; }
+  const len = Math.hypot(ix, iy);
+  if (len > 0) { ix /= len; iy /= len; }
+  // For analog input, scale target speed by stick magnitude (capped at 1)
+  const moveScale = Touch.moveMag > 0.08 && !(keys['w']||keys['a']||keys['s']||keys['d'])
+    ? Math.min(1, Touch.moveMag) : (len > 0 ? 1 : 0);
+  const target = player.speed * moveScale;
+  player.vx = lerp(player.vx, ix * target, 1 - Math.pow(0.001, dt));
+  player.vy = lerp(player.vy, iy * target, 1 - Math.pow(0.001, dt));
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+  // Body angle follows movement direction
+  if (len > 0) {
+    player.angle = angleLerp(player.angle, Math.atan2(iy, ix), 1 - Math.pow(0.0001, dt));
+  }
+  // Turret aim: right stick (touch) takes priority over mouse when active
+  let ta;
+  if (Touch.aimMag > 0.12) {
+    ta = Math.atan2(Touch.aimY, Touch.aimX);
+  } else {
+    ta = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+  }
+  player.turret = angleLerp(player.turret, ta, 1 - Math.pow(0.0000001, dt));
+  // Tread phase
+  player.treadPhase += Math.hypot(player.vx, player.vy) * dt * 0.04;
+
+  // Engine exhaust when moving
+  const spd = Math.hypot(player.vx, player.vy);
+  if (spd > 60 && Math.random() < spd / 260) {
+    const back = player.angle + Math.PI + rand(-0.4, 0.4);
+    particles.push({
+      x: player.x + Math.cos(back) * (player.r + 2),
+      y: player.y + Math.sin(back) * (player.r + 2),
+      vx: Math.cos(back) * rand(20, 60) - player.vx * 0.15,
+      vy: Math.sin(back) * rand(20, 60) - player.vy * 0.15,
+      life: rand(0.3, 0.7), age: 0,
+      size: rand(2, 5), color: 'rgba(0,180,220,0.5)', kind: 'smoke', drag: 0.94,
+    });
+  }
+
+  // Clamp to map
+  player.x = clamp(player.x, player.r, W - player.r);
+  player.y = clamp(player.y, player.r, H - player.r);
+
+  // Invuln
+  if (player.invuln > 0) player.invuln -= dt;
+  if (player.rapidTimer > 0) {
+    player.rapidTimer -= dt;
+    if (player.rapidTimer <= 0 && player.weapon) {
+      player.fireRate = player.weapon.fireRate;
+    }
+  }
+
+  // Fire
+  if (player.cooldown > 0) player.cooldown -= dt;
+  if ((mouse.down || keys[' '] || Touch.firing) && player.cooldown <= 0) {
+    const w = player.weapon;
+    const muzzleX = player.x + Math.cos(player.turret) * (player.r + 8);
+    const muzzleY = player.y + Math.sin(player.turret) * (player.r + 8);
+    // Compute derived fire stats from modules + meta
+    const dmgMult = (player.dmgMult || 1) * (player.berserker && player.hp / player.maxHp < 0.3 ? 1.5 : 1);
+    const spdMult = player.spdMult || 1;
+    const fireRateMult = player.fireRateMult || 1;
+    const extraBullets = (player.weaponMult && player.weaponMult.extraBullets) || 0;
+    const pierce = (player.weaponMult && player.weaponMult.pierce) || 0;
+    const critChance = (player.weaponMult && player.weaponMult.critChance) || 0;
+    // Compute total bullets to fire
+    const totalBurst = w.burst + extraBullets;
+    const spreadRange = w.spread + extraBullets * 0.05;
+    for (let i = 0; i < totalBurst; i++) {
+      const spread = (Math.random() - 0.5) * spreadRange + (i - (totalBurst - 1) / 2) * (spreadRange * 0.8 / Math.max(1, totalBurst - 1));
+      let dmg = w.bulletDmg * dmgMult;
+      let color = '#00f0ff';
+      const isCrit = Math.random() < critChance;
+      if (isCrit) { dmg *= 2; color = '#ffd23f'; }
+      const b = fireBullet(muzzleX, muzzleY, player.turret + spread, dmg, w.bulletSpd * spdMult, 'player', color);
+      if (b && pierce > 0) { b.pierce = pierce; b.hitsLeft = pierce; }
+      if (b && isCrit) b.crit = true;
+    }
+    spawnMuzzle(muzzleX, muzzleY, player.turret, '#aef9ff');
+    Audio.shoot();
+    player.cooldown = player.fireRate * fireRateMult;
+  }
+}
+
+/* ----------------------------- Enemy spawn ----------------------------- */
+function spawnEnemy(type) {
+  const def = ENEMY_TYPES[type];
+  // Spawn at edge away from player
+  let x, y, tries = 0;
+  do {
+    const edge = randi(0, 3);
+    if (edge === 0) { x = rand(40, W - 40); y = 30; }
+    else if (edge === 1) { x = W - 30; y = rand(40, H - 40); }
+    else if (edge === 2) { x = rand(40, W - 40); y = H - 30; }
+    else { x = 30; y = rand(40, H - 40); }
+    tries++;
+  } while (dist2(x, y, player.x, player.y) < 220 * 220 && tries < 10);
+
+  enemies.push({
+    type, x, y, r: def.r, hp: def.hp, maxHp: def.hp,
+    speed: def.speed, color: def.color, accent: def.accent,
+    fireRate: def.fireRate, bulletDmg: def.bulletDmg, bulletSpd: def.bulletSpd,
+    range: def.range, score: def.score, ai: def.ai,
+    angle: Math.random() * TAU, turret: 0,
+    cooldown: rand(0.5, 1.5), treadPhase: 0,
+    vx: 0, vy: 0, wanderAng: Math.random() * TAU, wanderTimer: 0,
+    spawnAnim: 1, // 1 → 0
+  });
+}
+
+/* ----------------------------- Enemy update ----------------------------- */
+function updateEnemy(e, dt) {
+  e.spawnAnim = Math.max(0, e.spawnAnim - dt * 1.4);
+  const dx = player.x - e.x, dy = player.y - e.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const nx = dx / d, ny = dy / d;
+  e.turret = angleLerp(e.turret, Math.atan2(dy, dx), 1 - Math.pow(0.0005, dt));
+
+  let mvx = 0, mvy = 0;
+  if (e.ai === 'swarm') {
+    // Light: rush + circle strafe
+    const strafe = Math.sin(performance.now() * 0.002 + e.treadPhase) * 0.7;
+    mvx = nx + (-ny) * strafe;
+    mvy = ny + (nx) * strafe;
+    if (d < 120) { mvx = -nx; mvy = -ny; } // back off if too close
+  } else if (e.ai === 'kite') {
+    // Medium: keep at preferred range
+    const want = 240;
+    if (d > want + 30) { mvx = nx; mvy = ny; }
+    else if (d < want - 30) { mvx = -nx; mvy = -ny; }
+    else { mvx = -ny; mvy = nx; } // strafe
+  } else if (e.ai === 'push') {
+    // Heavy: straight push
+    mvx = nx; mvy = ny;
+  }
+  // Wander noise
+  e.wanderTimer -= dt;
+  if (e.wanderTimer <= 0) { e.wanderAng += rand(-0.8, 0.8); e.wanderTimer = rand(0.6, 1.6); }
+  mvx += Math.cos(e.wanderAng) * 0.18;
+  mvy += Math.sin(e.wanderAng) * 0.18;
+  const mlen = Math.hypot(mvx, mvy) || 1;
+  mvx /= mlen; mvy /= mlen;
+  e.vx = lerp(e.vx, mvx * e.speed, 1 - Math.pow(0.001, dt));
+  e.vy = lerp(e.vy, mvy * e.speed, 1 - Math.pow(0.001, dt));
+
+  // Separation from other enemies (avoid stacking)
+  for (const o of enemies) {
+    if (o === e) continue;
+    const odx = e.x - o.x, ody = e.y - o.y;
+    const od2 = odx * odx + ody * ody;
+    const minD = (e.r + o.r) * 1.4;
+    if (od2 < minD * minD && od2 > 0.01) {
+      const od = Math.sqrt(od2);
+      const push = (minD - od) / minD;
+      e.vx += (odx / od) * push * e.speed * 0.6;
+      e.vy += (ody / od) * push * e.speed * 0.6;
+    }
+  }
+
+  e.x += e.vx * dt;
+  e.y += e.vy * dt;
+  e.x = clamp(e.x, e.r, W - e.r);
+  e.y = clamp(e.y, e.r, H - e.r);
+  if (mlen > 0.05) e.angle = angleLerp(e.angle, Math.atan2(e.vy, e.vx), 1 - Math.pow(0.0001, dt));
+  e.treadPhase += Math.hypot(e.vx, e.vy) * dt * 0.05;
+
+  // Collide with player body (ram damage)
+  if (player.alive && player.invuln <= 0) {
+    const pd2 = dist2(e.x, e.y, player.x, player.y);
+    const rs = e.r + player.r;
+    if (pd2 < rs * rs) {
+      damagePlayer(8 * dt + 4, e);
+      const pd = Math.sqrt(pd2) || 1;
+      e.x -= (player.x - e.x) / pd * 30 * dt;
+      e.y -= (player.y - e.y) / pd * 30 * dt;
+    }
+  }
+
+  // Firing
+  e.cooldown -= dt;
+  if (e.cooldown <= 0 && d < e.range && player.alive) {
+    const ang = e.turret + rand(-0.05, 0.05);
+    const mx = e.x + Math.cos(ang) * (e.r + 6);
+    const my = e.y + Math.sin(ang) * (e.r + 6);
+    if (e.isMiniBoss && e.volley > 1) {
+      // Mini-bosses fire a fan (kite/push) or full ring (seer) each volley.
+      const n = e.volley;
+      const ring = e.miniType === 'seer';
+      for (let i = 0; i < n; i++) {
+        const a = ring
+          ? (i / n) * TAU + performance.now() * 0.0006
+          : ang + (i - (n - 1) / 2) * 0.14;
+        fireBullet(e.x + Math.cos(a) * (e.r + 6), e.y + Math.sin(a) * (e.r + 6), a, e.bulletDmg, e.bulletSpd, 'enemy', e.color);
+      }
+      spawnMuzzle(mx, my, ang, e.accent);
+      Audio.enemyShoot();
+      e.cooldown = e.fireRate + rand(0, 0.3);
+    } else {
+      fireBullet(mx, my, ang, e.bulletDmg, e.bulletSpd, 'enemy', e.color);
+      spawnMuzzle(mx, my, ang, e.accent);
+      Audio.enemyShoot();
+      e.cooldown = e.fireRate + rand(-0.2, 0.4);
+    }
+  }
+}
+
+/* ========================================================================
+   SUICIDE DRONES — spawn, behavior, render
+   ======================================================================== */
+function spawnDrone(type) {
+  const def = DRONE_TYPES[type];
+  let x, y, tries = 0;
+  do {
+    const edge = randi(0, 3);
+    if (edge === 0) { x = rand(40, W - 40); y = 30; }
+    else if (edge === 1) { x = W - 30; y = rand(40, H - 40); }
+    else if (edge === 2) { x = rand(40, W - 40); y = H - 30; }
+    else { x = 30; y = rand(40, H - 40); }
+    tries++;
+  } while (dist2(x, y, player.x, player.y) < 200 * 200 && tries < 10);
+  drones.push({
+    type, x, y, r: def.r, hp: def.hp,
+    speed: def.speed, color: def.color, accent: def.accent,
+    lockRange: def.lockRange, telegraph: def.telegraph, diveSpeed: def.diveSpeed,
+    explosion: def.explosion, contactDmg: def.contactDmg, score: def.score,
+    state: 'approach', // approach → lock → dive → boom
+    angle: 0, vx: 0, vy: 0,
+    spin: 0, spinSpeed: rand(4, 8),
+    stateTimer: 0,
+    lockX: 0, lockY: 0,
+    spawnAnim: 1,
+  });
+}
+
+function updateDrone(d, dt) {
+  d.spawnAnim = Math.max(0, d.spawnAnim - dt * 1.4);
+  d.spin += d.spinSpeed * dt;
+  const dx = player.x - d.x, dy = player.y - d.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const nx = dx / dist, ny = dy / dist;
+  d.angle = Math.atan2(dy, dx);
+
+  if (d.state === 'approach') {
+    // Move toward player at base speed until within lock range
+    d.vx = lerp(d.vx, nx * d.speed, 1 - Math.pow(0.0005, dt));
+    d.vy = lerp(d.vy, ny * d.speed, 1 - Math.pow(0.0005, dt));
+    if (dist <= d.lockRange) {
+      // LOCK: freeze the player's current position as the target
+      d.state = 'lock';
+      d.stateTimer = d.telegraph;
+      d.lockX = player.x;
+      d.lockY = player.y;
+      d.vx *= 0.3; d.vy *= 0.3;
+      Audio.ui(); // soft beep to warn player
+    }
+  } else if (d.state === 'lock') {
+    // Telegraph: hover + pulse, do NOT chase
+    d.stateTimer -= dt;
+    d.vx *= 0.9; d.vy *= 0.9;
+    // tiny drift toward lock point to stay close
+    const lx = d.lockX - d.x, ly = d.lockY - d.y;
+    const ld = Math.hypot(lx, ly) || 1;
+    d.vx += (lx / ld) * 20 * dt;
+    d.vy += (ly / ld) * 20 * dt;
+    if (d.stateTimer <= 0) {
+      d.state = 'dive';
+      const tdx = d.lockX - d.x, tdy = d.lockY - d.y;
+      const td = Math.hypot(tdx, tdy) || 1;
+      // Snapshot dive direction (fixed toward the locked point)
+      d.diveVX = (tdx / td) * d.diveSpeed;
+      d.diveVY = (tdy / td) * d.diveSpeed;
+      Audio.enemyShoot();
+    }
+  } else if (d.state === 'dive') {
+    // Straight-line dive toward locked point — dodgeable because it doesn't track
+    d.vx = d.diveVX;
+    d.vy = d.diveVY;
+    // Fiery dive trail
+    if (Math.random() < 0.8) {
+      particles.push({
+        x: d.x + rand(-3, 3), y: d.y + rand(-3, 3),
+        vx: -d.vx * 0.12 + rand(-15, 15), vy: -d.vy * 0.12 + rand(-15, 15),
+        life: rand(0.25, 0.5), age: 0,
+        size: rand(2, 4.5), color: d.color, kind: 'spark', drag: 0.9,
+      });
+    }
+    // Check if reached the locked point (or close to it)
+    const reached = dist2(d.x, d.y, d.lockX, d.lockY) < 16 * 16;
+    if (reached) {
+      explodeDrone(d);
+      return; // explodeDrone removes it
+    }
+  }
+
+  d.x += d.vx * dt;
+  d.y += d.vy * dt;
+  d.x = clamp(d.x, d.r, W - d.r);
+  d.y = clamp(d.y, d.r, H - d.r);
+
+  // Contact with player = boom (but only if not in lock-telegraph so player has a chance)
+  if (player.alive && player.invuln <= 0) {
+    const pd2 = dist2(d.x, d.y, player.x, player.y);
+    const rs = d.r + player.r;
+    if (pd2 < rs * rs && d.state !== 'lock') {
+      explodeDrone(d);
+      return;
+    }
+  }
+}
+
+function explodeDrone(d) {
+  const idx = drones.indexOf(d);
+  if (idx < 0) return;
+  spawnExplosion(d.x, d.y, d.color, d.explosion);
+  // Area damage to player if close
+  if (player.alive && player.invuln <= 0) {
+    const blastR = 50 * d.explosion;
+    const pd2 = dist2(d.x, d.y, player.x, player.y);
+    if (pd2 < blastR * blastR) {
+      const fall = 1 - Math.sqrt(pd2) / blastR;
+      damagePlayer(d.contactDmg * fall, 'drone');
+    }
+  }
+  // Rogue: reward
+  if (Game.mode === 'roguelite') {
+    const gain = Math.round(d.score * (Rogue.scoreMult || 1));
+    Game.score += gain;
+    Rogue.runStats.score = Game.score;
+    Rogue.aetherThisRun += 1;
+  } else {
+    Game.score += d.score;
+  }
+  drones.splice(idx, 1);
+}
+
+/* ========================================================================
+   GADGETS — fire + abilities + HUD
+   ======================================================================== */
+function getWeaponGadget() {
+  // Returns the FIRST owned weapon-type gadget (player has all of them,
+  // but only the most recently-purchased weapon is "active").
+  // For simplicity: equipped gadget is chosen at run start = first owned weapon gadget.
+  // We store it on player.equippedGadget.
+  return player.equippedGadget || null;
+}
+
+function equipOwnedGadgets() {
+  // Determine the active weapon gadget (last purchased weapon in GADGETS order)
+  let active = null;
+  for (const g of GADGETS) {
+    if (g.kind === 'weapon' && ownsGadget(g.id)) active = g;
+  }
+  player.equippedGadget = active;
+  // Reset ability gadget runtime state
+  for (const g of GADGETS) {
+    if (g.kind === 'ability' && ownsGadget(g.id)) {
+      if (g.id === 'repairkit') {
+        g._runtimeCharges = g.chargesPerRun || 0;
+      } else {
+        g._runtimeCd = 0;
+      }
+    }
+  }
+  player.gadgetCooldown = 0;
+}
+
+function fireGadgetWeapon(dt) {
+  if (!player.alive) return;
+  const g = getWeaponGadget();
+  if (!g) return;
+  if (player.gadgetCooldown > 0) player.gadgetCooldown -= dt;
+  if (!mouse.right && !Touch.weaponFiring) return;
+  if (player.gadgetCooldown > 0) return;
+  // Fire bullet from turret direction (or gadget-specific origin)
+  const mx = player.x + Math.cos(player.turret) * (player.r + 14);
+  const my = player.y + Math.sin(player.turret) * (player.r + 14);
+  const burst = g.burst || 1;
+  for (let i = 0; i < burst; i++) {
+    const spread = (Math.random() - 0.5) * g.spread + (i - (burst - 1) / 2) * (g.spread * 0.8 / Math.max(1, burst - 1));
+    const ang = player.turret + spread;
+    const b = fireGadgetBullet(mx, my, ang, g.bulletDmg, g.bulletSpd, '#b6ff3a');
+    if (g.pierce) { b.pierce = g.pierce; b.hitsLeft = g.pierce; }
+  }
+  spawnMuzzle(mx, my, player.turret, '#b6ff3a');
+  Audio.shoot();
+  player.gadgetCooldown = g.fireRate;
+}
+
+function fireGadgetBullet(x, y, ang, dmg, spd, color) {
+  // Bullets from gadgets tag from='gadget' — these are the ONLY bullets
+  // that can damage drones. Main weapon bullets pass through drones harmlessly.
+  const b = {
+    x, y,
+    vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+    dmg, life: 1.4, from: 'gadget', r: 3, color, age: 0,
+    pierce: 0, hitsLeft: 0,
+  };
+  if (b.pierce) b.hitsLeft = b.pierce;
+  bullets.push(b);
+  return b;
+}
+
+function tryActivateAbility(key) {
+  for (const g of GADGETS) {
+    if (g.kind !== 'ability') continue;
+    if (g.key !== key) continue;
+    if (!ownsGadget(g.id)) continue;
+    if (g.id === 'repairkit') {
+      if ((g._runtimeCharges || 0) <= 0) { toast('کیت تعمیر تمام شد'); return; }
+      g._runtimeCharges -= 1;
+      player.hp = Math.min(player.maxHp, player.hp + 40);
+      showBanner('+۴۰ HP — تعمیر');
+      Audio.pickup();
+      return;
+    }
+    if ((g._runtimeCd || 0) > 0) { toast(g.cooldownLabel + ' در cooldown'); return; }
+    if (g.id === 'emp') {
+      // Destroy ALL drones on screen with explosions
+      const toBoom = drones.slice();
+      toBoom.forEach((d, i) => {
+        setTimeout(() => {
+          if (drones.indexOf(d) >= 0) explodeDrone(d);
+        }, i * 60);
+      });
+      // Visual pulse
+      shockwaves.push({ x: player.x, y: player.y, r: 10, maxR: Math.max(W, H) * 0.7, life: 0.7, age: 0, color: '#b6ff3a', lineW: 5 });
+      for (let i = 0; i < 30; i++) {
+        const a = (i / 30) * TAU;
+        particles.push({
+          x: player.x, y: player.y,
+          vx: Math.cos(a) * 400, vy: Math.sin(a) * 400,
+          life: 0.5, age: 0, size: 4, color: '#b6ff3a', kind: 'spark', drag: 0.92,
+        });
+      }
+      shake = Math.min(20, shake + 8);
+      showBanner('EMP PULSE');
+      g._runtimeCd = g.cooldown;
+      Audio.explosion();
+      return;
+    }
+    if (g.id === 'shieldboost') {
+      player.invuln = Math.max(player.invuln, 3);
+      showBanner('سپر اضطراری فعال');
+      Audio.pickup();
+      g._runtimeCd = g.cooldown;
+      return;
+    }
+  }
+}
+
+function updateAbilityCooldowns(dt) {
+  for (const g of GADGETS) {
+    if (g.kind !== 'ability' || !ownsGadget(g.id)) continue;
+    if (g._runtimeCd > 0) g._runtimeCd = Math.max(0, g._runtimeCd - dt);
+  }
+}
+
+/* ----------------------------- Gadget tutorial (first-time hint) ----------------------------- */
+const GADGET_TUTORIALS = {
+  autocannon:    'گجت تیربار روی تانکت نصب شد! با «راست‌کلیک موس» شلیک کن — تنها راه نابودی پهپادهای انتحاری 🚁',
+  scattercannon: 'تیربار پخش‌کن نصب شد! «راست‌کلیک» = ۵ گلوله همزمان علیه پهپادها',
+  railpearl:     'مروارید ریل نصب شد! «راست‌کلیک» = گلوله نافذ که چند پهپاد را با هم می‌زند',
+  emp:           'پالس EMP آماده است! کلید «E» = نابودی تمام پهپادهای روی صفحه',
+  repairkit:     'کیت تعمیر آماده است! کلید «R» = ترمیم فوری +۴۰ جان (۳ شارژ در هر ران)',
+  shieldboost:   'سپر اضطراری آماده است! کلید «F» = ۳ ثانیه نامرئی شدن',
+};
+function showGadgetIntroIfNew() {
+  // Called at battle start: show one-time tutorial for any owned-but-unseen gadget.
+  for (const g of GADGETS) {
+    if (!ownsGadget(g.id)) continue;
+    if (Meta.gadgetSeenIntro[g.id]) continue;
+    Meta.gadgetSeenIntro[g.id] = true;
+    saveMeta();
+    const msg = GADGET_TUTORIALS[g.id] || `گجت ${g.name} فعال شد`;
+    showBanner(g.icon + ' گجت جدید');
+    toast(msg, 5200);
+    return; // one hint per battle so the player isn't spammed
+  }
+}
+
+/* ----------------------------- HP HUD update ----------------------------- */
+const _hpHudCache = { hp: -1, mx: -1, tier: '' };
+function updateHpHud() {
+  const hp = Math.max(0, Math.round(player.hp));
+  const mx = Math.round(player.maxHp);
+  const ratio = mx > 0 ? hp / mx : 0;
+  const tier = ratio < 0.3 ? 'crit' : (ratio < 0.6 ? 'low' : '');
+  if (hp === _hpHudCache.hp && mx === _hpHudCache.mx && tier === _hpHudCache.tier) return;
+  const num = $('hpNum'), max = $('hpMax'), fill = $('hpFill');
+  if (hp !== _hpHudCache.hp) num.textContent = hp;
+  if (mx !== _hpHudCache.mx) max.textContent = '/' + mx;
+  fill.style.width = (ratio * 100) + '%';
+  if (tier !== _hpHudCache.tier) {
+    num.className = 'hp-num' + (tier ? ' ' + tier : '');
+    fill.className = 'hp-fill' + (tier ? ' ' + tier : '');
+  }
+  _hpHudCache.hp = hp; _hpHudCache.mx = mx; _hpHudCache.tier = tier;
+}
+
+/* ----------------------------- Gadget HUD render ----------------------------- */
+function refreshGadgetHud() {
+  const hud = $('gadgetHud');
+  hud.innerHTML = '';
+  // Weapon gadget slot
+  const wg = getWeaponGadget();
+  if (wg) {
+    const slot = document.createElement('div');
+    slot.className = 'gadget-slot';
+    slot.innerHTML = `
+      <div class="gadget-ico">${wg.icon}</div>
+      <div class="gadget-info">
+        <div class="gadget-name">${wg.cooldownLabel}</div>
+        <div class="gadget-key">راست‌کلیک</div>
+        <div class="gadget-cd-bar"><div class="gadget-cd-fill" id="gcd-${wg.id}"></div></div>
+      </div>
+    `;
+    hud.appendChild(slot);
+  }
+  // Ability gadgets
+  for (const g of GADGETS) {
+    if (g.kind !== 'ability' || !ownsGadget(g.id)) continue;
+    const slot = document.createElement('div');
+    slot.className = 'gadget-slot';
+    let right = '';
+    if (g.id === 'repairkit') {
+      right = `<div class="gadget-key">کلید ${g.key} — <span id="gch-${g.id}">${(g._runtimeCharges || 0)}</span> شارژ</div>`;
+    } else {
+      const cd = Math.ceil(g._runtimeCd || 0);
+      right = `<div class="gadget-key">کلید ${g.key}<span id="gch-${g.id}">${cd > 0 ? ' — '+cd+'s' : ' — آماده'}</span></div>`;
+    }
+    slot.innerHTML = `
+      <div class="gadget-ico">${g.icon}</div>
+      <div class="gadget-info">
+        <div class="gadget-name">${g.cooldownLabel}</div>
+        ${right}
+        <div class="gadget-cd-bar"><div class="gadget-cd-fill" id="gcd-${g.id}"></div></div>
+      </div>
+    `;
+    slot.id = 'gslot-' + g.id;
+    if ((g._runtimeCd || 0) > 0) slot.classList.add('cooldown');
+    hud.appendChild(slot);
+  }
+}
+
+/* --------------------- On-screen action buttons (touch) --------------------- */
+function refreshTouchButtons() {
+  if (!Touch.enabled) return;
+  const wrap = $('touchButtons');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  // Main fire button (mirrors right-stick auto-fire so players can also tap)
+  const fire = document.createElement('div');
+  fire.className = 'touch-btn fire-main';
+  fire.innerHTML = '🔥';
+  bindHold(fire, () => { Touch.firing = true; }, () => { if (Touch.aim.id === null) Touch.firing = false; });
+  wrap.appendChild(fire);
+  // Weapon gadget (right-click equivalent)
+  const wg = getWeaponGadget();
+  if (wg) {
+    const b = document.createElement('div');
+    b.className = 'touch-btn weapon';
+    b.id = 'tb-weapon';
+    b.innerHTML = `${wg.icon}<span class="tb-key">${wg.cooldownLabel}</span>`;
+    bindHold(b, () => { Touch.weaponFiring = true; Audio.ensure(); }, () => { Touch.weaponFiring = false; });
+    wrap.appendChild(b);
+  }
+  // Ability gadgets (E / R / F)
+  for (const g of GADGETS) {
+    if (g.kind !== 'ability' || !ownsGadget(g.id)) continue;
+    const b = document.createElement('div');
+    b.className = 'touch-btn ability';
+    b.id = 'tb-' + g.id;
+    b.innerHTML = `${g.icon}<span class="tb-key">${g.cooldownLabel}</span>`;
+    bindTap(b, () => { Audio.ensure(); tryActivateAbility(g.key); Tg.haptic('medium'); });
+    wrap.appendChild(b);
+  }
+}
+// Press-and-hold helper: fires onDown at touchstart, onUp at end/cancel.
+function bindHold(el, onDown, onUp) {
+  const down = (e) => { e.preventDefault(); e.stopPropagation(); onDown(); };
+  const up = (e) => { e.preventDefault(); e.stopPropagation(); onUp(); };
+  el.addEventListener('touchstart', down, { passive: false });
+  el.addEventListener('touchend', up, { passive: false });
+  el.addEventListener('touchcancel', up, { passive: false });
+}
+function bindTap(el, onTap) {
+  el.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); onTap(); }, { passive: false });
+}
+// Reflect ability cooldown state onto the touch buttons (called each frame).
+function updateTouchButtonsRuntime() {
+  if (!Touch.enabled) return;
+  for (const g of GADGETS) {
+    if (g.kind !== 'ability' || !ownsGadget(g.id)) continue;
+    const b = $('tb-' + g.id);
+    if (!b) continue;
+    const onCd = (g._runtimeCd || 0) > 0 || (g.id === 'repairkit' && (g._runtimeCharges || 0) <= 0);
+    if (b._cd !== onCd) { b._cd = onCd; b.classList.toggle('cooldown', onCd); }
+  }
+  const wb = $('tb-weapon');
+  if (wb) {
+    const onCd = player.gadgetCooldown > 0;
+    if (wb._cd !== onCd) { wb._cd = onCd; wb.classList.toggle('cooldown', onCd); }
+  }
+}
+
+/* Draw the two floating joysticks on the canvas (called from render()). */
+function drawTouchSticks() {
+  if (!Touch.enabled || Game.state !== 'battle') return;
+  const ring = (s, active) => {
+    ctx.save();
+    ctx.globalAlpha = active ? 0.5 : 0.18;
+    ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(s.ox, s.oy, Touch.R, 0, TAU); ctx.stroke();
+    ctx.globalAlpha = active ? 0.85 : 0;
+    ctx.fillStyle = '#00f0ff';
+    ctx.beginPath(); ctx.arc(s.cx, s.cy, 22, 0, TAU); ctx.fill();
+    ctx.restore();
+  };
+  if (Touch.move.id !== null) ring(Touch.move, true);
+  if (Touch.aim.id !== null) ring(Touch.aim, true);
+}
+
+const _gadgetHudCache = {}; // per-gadget last-written width% / text / cooldown class
+function updateGadgetHudRuntime() {
+  // Update cooldown fill bars and charge counts without rebuilding DOM every frame.
+  // Values are quantized and dirty-checked so idle frames do zero DOM writes.
+  const wg = getWeaponGadget();
+  for (const g of GADGETS) {
+    if (!ownsGadget(g.id)) continue;
+    const fill = $('gcd-' + g.id);
+    if (!fill) continue;
+    const cache = _gadgetHudCache[g.id] || (_gadgetHudCache[g.id] = { w: -1, txt: null, cd: null });
+    let ratio = 1;
+    if (g.kind === 'weapon') {
+      ratio = wg ? (1 - player.gadgetCooldown / wg.fireRate) : 1;
+    } else if (g.id === 'repairkit') {
+      ratio = (g._runtimeCharges || 0) > 0 ? 1 : 0;
+    } else {
+      ratio = 1 - ((g._runtimeCd || 0) / (g.cooldown || 1));
+    }
+    const w = Math.round(clamp(ratio, 0, 1) * 50) * 2; // quantize to 2% steps
+    if (w !== cache.w) { cache.w = w; fill.style.width = w + '%'; }
+    const ch = $('gch-' + g.id);
+    if (ch) {
+      let txt;
+      if (g.id === 'repairkit') txt = String(g._runtimeCharges || 0);
+      else {
+        const cd = Math.ceil(g._runtimeCd || 0);
+        txt = cd > 0 ? ' — ' + cd + 's' : ' — آماده';
+      }
+      if (txt !== cache.txt) { cache.txt = txt; ch.textContent = txt; }
+    }
+    const slot = $('gslot-' + g.id);
+    if (slot) {
+      const onCd = (g._runtimeCd || 0) > 0 || (g.id === 'repairkit' && (g._runtimeCharges || 0) <= 0);
+      if (onCd !== cache.cd) { cache.cd = onCd; slot.classList.toggle('cooldown', onCd); }
+    }
+  }
+}
+
+/* ========================================================================
+   SHOP
+   ======================================================================== */
+function openShop() {
+  Audio.ui();
+  Game.state = 'shop';
+  $('shopCredits').textContent = Meta.credits;
+  const grid = $('shopGrid');
+  grid.innerHTML = '';
+  GADGETS.forEach(g => {
+    const owned = ownsGadget(g.id);
+    const affordable = Meta.credits >= g.cost;
+    const card = document.createElement('div');
+    card.className = 'shop-card' + (owned ? ' owned' : '') + (!owned && !affordable ? ' locked' : '');
+    card.innerHTML = `
+      <div class="shop-card-head">
+        <div class="shop-card-name">${g.name}</div>
+        <div class="shop-card-ico">${g.icon}</div>
+      </div>
+      <div class="shop-card-desc">${g.desc}</div>
+      <div class="shop-card-foot">
+        <div class="shop-card-cost">${owned ? '' : (g.cost + ' CR')}</div>
+        <button class="shop-card-buy" ${owned || !affordable ? 'disabled' : ''}>
+          ${owned ? '<span class="shop-card-tag">OWNED ✓</span>' : 'خرید'}
+        </button>
+      </div>
+    `;
+    if (!owned && affordable) {
+      card.querySelector('.shop-card-buy').onclick = () => {
+        Meta.credits -= g.cost;
+        Meta.ownedGadgets.push(g.id);
+        saveMeta();
+        Audio.pickup();
+        toast(`${g.icon} ${g.name} خریداری شد! ${GADGET_TUTORIALS[g.id] || ''}`, 5200);
+        openShop(); // re-render
+      };
+    }
+    grid.appendChild(card);
+  });
+  showScreen('shop');
+}
+
+/* ----------------------------- Drone spawn scheduler ----------------------------- */
+function maybeSpawnDrones(dt) {
+  // Spawn drones periodically in both modes; rate scales with depth/level
+  Game.droneTimer = (Game.droneTimer || 0) - dt;
+  if (Game.droneTimer > 0) return;
+  if (Game.state !== 'battle') return;
+  // Determine difficulty factor
+  let depthFactor = 1;
+  if (Game.mode === 'roguelite') depthFactor = 1 + Rogue.depth * 0.18;
+  else depthFactor = 1 + Game.levelIndex * 0.5;
+  // Don't spawn during boss intro/boss-only depths too densely
+  if (Game.bossActive) {
+    // Hive boss summons minions; don't overwhelm — slower drone rate
+    Game.droneTimer = 6 / depthFactor;
+  } else {
+    Game.droneTimer = rand(4.5, 7) / depthFactor;
+  }
+  // Pick drone type weighted by difficulty
+  let type = 'scout';
+  const r = Math.random();
+  if (Game.mode === 'roguelite') {
+    if (Rogue.depth >= 8 && r < 0.25) type = 'bomber';
+    else if (Rogue.depth >= 4 && r < 0.5) type = 'striker';
+    else type = 'scout';
+  } else {
+    if (Game.levelIndex >= 3 && r < 0.3) type = 'bomber';
+    else if (Game.levelIndex >= 1 && r < 0.55) type = 'striker';
+    else type = 'scout';
+  }
+  // Cap concurrent drones
+  if (drones.length < 6) spawnDrone(type);
+}
+
+/* ----------------------------- Player damage ----------------------------- */
+function damagePlayer(amount, src) {
+  if (!player.alive || player.invuln > 0) return;
+  // Ram resist (from treads module): reduces contact damage from enemies/boss
+  if (src && player.ramResist && src !== 'bullet') {
+    amount *= player.ramResist;
+  }
+  player.hp -= amount;
+  Audio.hit();
+  spawnHit(player.x, player.y, '#ff5555');
+  shake = Math.min(18, shake + 5);
+  if (player.hp <= 0) {
+    player.hp = 0;
+    // Second Wind module (rogue only): revive once per run
+    if (Game.mode === 'roguelite' && Rogue.modules.includes('secondwind') && !Rogue.usedSecondWind) {
+      Rogue.usedSecondWind = true;
+      player.hp = Math.round(player.maxHp * 0.3);
+      player.invuln = 3;
+      spawnExplosion(player.x, player.y, '#b6ff3a', 1.5);
+      toast('نفس دوم فعال شد!');
+      return;
+    }
+    player.lives -= 1;
+    spawnExplosion(player.x, player.y, '#00f0ff', 1.4);
+    updateLifeBelt();
+    if (player.lives <= 0) {
+      player.alive = false;
+      setTimeout(() => {
+        if (Game.mode === 'roguelite') endRogueRun();
+        else endGame(false);
+      }, 1200);
+    } else {
+      // Respawn
+      player.x = W / 2; player.y = H / 2;
+      player.hp = player.maxHp;
+      player.invuln = 2.5;
+      player.vx = 0; player.vy = 0;
+      toast('مجدداً وارد نبرد شدی — ' + player.lives + ' جان باقی است');
+    }
+  }
+}
+
+/* ----------------------------- Bullets update ----------------------------- */
+function updateBullets(dt) {
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.life -= dt;
+    b.age += dt;
+    if (b.life <= 0 || b.x < -20 || b.x > W + 20 || b.y < -20 || b.y > H + 20) {
+      bullets.splice(i, 1); continue;
+    }
+    const isPlayerSide = (b.from === 'player' || b.from === 'gadget');
+    if (isPlayerSide) {
+      let consumed = false;
+      // --- GADGET bullets ONLY hit drones (pass through enemies/boss harmlessly) ---
+      if (b.from === 'gadget') {
+        for (let j = drones.length - 1; j >= 0; j--) {
+          const d = drones[j];
+          const rs = d.r + b.r + 2;
+          if (dist2(b.x, b.y, d.x, d.y) < rs * rs) {
+            // Drone destroyed (1 HP)
+            spawnHit(b.x, b.y, d.color);
+            Audio.hit();
+            explodeDrone(d);
+            if (b.hitsLeft > 0) {
+              b.hitsLeft -= 1;
+            } else {
+              bullets.splice(i, 1);
+              consumed = true;
+            }
+            break;
+          }
+        }
+        if (consumed) continue;
+        // Gadget bullets do NOT damage enemies or bosses (they're anti-drone only)
+        continue;
+      }
+      // --- PLAYER bullets damage enemies & boss (NOT drones — they pass through) ---
+      // hit enemies
+      for (let j = enemies.length - 1; j >= 0; j--) {
+        const e = enemies[j];
+        if (e._piercedBy && e._piercedBy.includes(b)) continue; // already pierced this enemy
+        const rs = e.r + b.r;
+        if (dist2(b.x, b.y, e.x, e.y) < rs * rs) {
+          e.hp -= b.dmg;
+          spawnHit(b.x, b.y, e.accent);
+          if (b.crit) spawnHit(b.x, b.y, '#ffd23f');
+          Audio.hit();
+          if (e.hp <= 0) { killEnemy(j); }
+          if (b.hitsLeft > 0) {
+            b.hitsLeft -= 1;
+            // mark this enemy as already hit so we don't loop on it
+            e._piercedBy = (e._piercedBy || []);
+            e._piercedBy.push(b);
+          } else {
+            bullets.splice(i, 1);
+            consumed = true;
+          }
+          break;
+        }
+      }
+      if (consumed) continue;
+      // hit boss
+      if (Game.bossActive && Rogue.bossRef && !bossUntargetable(Rogue.bossRef)) {
+        const boss = Rogue.bossRef;
+        const rs = boss.r + b.r;
+        if (dist2(b.x, b.y, boss.x, boss.y) < rs * rs) {
+          damageBoss(boss, b.dmg);
+          spawnHit(b.x, b.y, boss.accent);
+          if (b.crit) spawnHit(b.x, b.y, '#ffd23f');
+          Audio.hit();
+          if (b.hitsLeft > 0) {
+            b.hitsLeft -= 1;
+          } else {
+            bullets.splice(i, 1);
+          }
+        }
+      }
+    } else {
+      // enemy bullet hits player
+      if (player.alive) {
+        const rs = player.r + b.r;
+        if (dist2(b.x, b.y, player.x, player.y) < rs * rs) {
+          // Dodge check
+          if (player.dodge && Math.random() < player.dodge) {
+            spawnHit(b.x, b.y, '#b6ff3a');
+            bullets.splice(i, 1);
+            continue;
+          }
+          damagePlayer(b.dmg);
+          bullets.splice(i, 1);
+        }
+      }
+    }
+  }
+}
+
+/* ----------------------------- Kill enemy ----------------------------- */
+function killEnemy(idx) {
+  const e = enemies[idx];
+  spawnExplosion(e.x, e.y, e.color, e.isMiniBoss ? 2.6 : (e.type === 'heavy' ? 1.5 : (e.type === 'medium' ? 1.2 : 1)));
+  if (e.isMiniBoss) {
+    shake = Math.min(26, shake + 14); toast(`${e.name} نابود شد!`);
+    if (Game.mode === 'roguelite') Rogue.runStats.miniBossesKilled = (Rogue.runStats.miniBossesKilled || 0) + 1;
+  }
+  // Rogue: apply score mult + aether gain
+  let scoreGain = e.score;
+  if (Game.mode === 'roguelite') {
+    scoreGain = Math.round(e.score * (Rogue.scoreMult || 1));
+    Rogue.runStats.kills += 1;
+    Rogue.aetherThisRun += 1;
+    Rogue.runStats.score = Game.score + scoreGain;
+    // Lifesteal module
+    if (player.lifestealPerKill) {
+      player.hp = Math.min(player.maxHp, player.hp + player.lifestealPerKill);
+    }
+  }
+  Game.score += scoreGain;
+  Game.enemiesRemaining = Math.max(0, Game.enemiesRemaining - 1);
+  enemies.splice(idx, 1);
+  // Random chance for pickup drop on kill
+  const dropChance = 0.12 * (player.pickupMult || 1);
+  const forceDrop = Game.mode === 'roguelite' && (e.isElite || e.isMiniBoss); // elites/mini-bosses always drop
+  if (Math.random() < dropChance || forceDrop) {
+    pickups.push({
+      x: e.x, y: e.y, type: ['health', 'rapid', 'shield'][randi(0, 2)],
+      r: 14, age: 0, bob: Math.random() * TAU,
+    });
+    if (e.isMiniBoss) { // second guaranteed drop for mini-bosses
+      pickups.push({ x: e.x + 24, y: e.y, type: 'health', r: 14, age: 0, bob: Math.random() * TAU });
+    }
+  }
+}
+
+/* ----------------------------- Particles update ----------------------------- */
+const MAX_PARTICLES = 480; // hard budget so crowded scenes stay cheap to draw
+function updateParticles(dt) {
+  // Trim oldest first when over budget. New particles are pushed to the end,
+  // so the front of the array is the oldest — dropping from there sheds the
+  // particles closest to expiring and keeps the freshest, most visible ones.
+  if (particles.length > MAX_PARTICLES) {
+    particles.splice(0, particles.length - MAX_PARTICLES);
+  }
+  // dt is always the fixed STEP (1/60), so Math.pow(drag, dt*60) === drag —
+  // computed once here instead of two Math.pow calls per particle.
+  const dragExp = dt * 60;
+  const fixedStep = Math.abs(dragExp - 1) < 1e-6;
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.age += dt;
+    if (p.age >= p.life) { particles.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    const dr = fixedStep ? p.drag : Math.pow(p.drag, dragExp);
+    p.vx *= dr;
+    p.vy *= dr;
+    if (p.kind === 'smoke') p.size += dt * 14;
+  }
+}
+
+/* ----------------------------- Pickups update ----------------------------- */
+function updatePickups(dt) {
+  for (let i = pickups.length - 1; i >= 0; i--) {
+    const p = pickups[i];
+    p.age += dt; p.bob += dt * 3;
+    if (player.alive && dist2(p.x, p.y, player.x, player.y) < (p.r + player.r) * (p.r + player.r)) {
+      applyPickup(p);
+      pickups.splice(i, 1);
+    }
+  }
+}
+
+/* ----------------------------- Decals fade ----------------------------- */
+function updateDecals(dt) {
+  for (let i = decals.length - 1; i >= 0; i--) {
+    decals[i].alpha -= dt * 0.05;
+    if (decals[i].alpha <= 0) decals.splice(i, 1);
+  }
+}
+
+/* ----------------------------- Clouds update ----------------------------- */
+function updateClouds(dt) {
+  for (const c of clouds) {
+    c.x += c.spd * dt;
+    if (c.x - c.r > W) { c.x = -c.r; c.y = Math.random() * H * 0.7; }
+  }
+}
+
+/* ========================================================================
+   RENDER
+   ======================================================================== */
+function clear() {
+  // Pre-rendered ground gradient + grid (see buildStaticLayers)
+  ctx.drawImage(bgLayer, 0, 0, W, H);
+}
+
+// Each cloud pre-renders its own gradient sprite once at creation; drawing is
+// then a single drawImage instead of a per-frame createRadialGradient.
+function makeCloudSprite(c) {
+  const s = Math.ceil(c.r * 2);
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = s;
+  const cc = cv.getContext('2d');
+  const g = cc.createRadialGradient(c.r, c.r, 0, c.r, c.r, c.r);
+  g.addColorStop(0, `hsla(${c.hue}, 80%, 70%, ${c.a})`);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  cc.fillStyle = g;
+  cc.fillRect(0, 0, s, s);
+  return cv;
+}
+
+function drawClouds() {
+  for (const c of clouds) {
+    if (!c.sprite) c.sprite = makeCloudSprite(c);
+    ctx.drawImage(c.sprite, c.x - c.r, c.y - c.r);
+  }
+}
+
+// Shared scorch-mark sprite, scaled per decal.
+let decalSprite = null;
+function getDecalSprite() {
+  if (decalSprite) return decalSprite;
+  const S = 64, R = 32;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const c = cv.getContext('2d');
+  const g = c.createRadialGradient(R, R, 0, R, R, R);
+  g.addColorStop(0, 'rgba(10,10,10,0.85)');
+  g.addColorStop(1, 'rgba(10,10,10,0)');
+  c.fillStyle = g;
+  c.fillRect(0, 0, S, S);
+  decalSprite = cv;
+  return cv;
+}
+
+function drawDecals() {
+  if (!decals.length) return;
+  const spr = getDecalSprite();
+  ctx.save();
+  for (const d of decals) {
+    ctx.globalAlpha = Math.max(0, d.alpha);
+    ctx.drawImage(spr, d.x - d.r, d.y - d.r, d.r * 2, d.r * 2);
+  }
+  ctx.restore();
+}
+
+function drawTank(t, opts) {
+  const isPlayer = opts.isPlayer;
+  ctx.save();
+  ctx.translate(t.x, t.y);
+
+  // Spawn animation ring
+  if (t.spawnAnim > 0 && !isPlayer) {
+    ctx.save();
+    ctx.globalAlpha = t.spawnAnim;
+    ctx.strokeStyle = t.accent || '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, t.r + 18 * (1 - t.spawnAnim) + 8, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Shield aura (player invuln)
+  if (isPlayer && player.invuln > 0) {
+    ctx.save();
+    const a = (Math.sin(performance.now() * 0.02) * 0.3 + 0.5) * 0.6;
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = '#b6ff3a';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#b6ff3a'; ctx.shadowBlur = 18;
+    ctx.beginPath(); ctx.arc(0, 0, t.r + 10, 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Treads
+  ctx.rotate(t.angle);
+  ctx.fillStyle = isPlayer ? '#1c2c40' : '#251a25';
+  const tr = t.r;
+  ctx.fillRect(-tr, -tr - 3, tr * 2, 6);
+  ctx.fillRect(-tr, tr - 3, tr * 2, 6);
+  // tread segments
+  ctx.fillStyle = isPlayer ? '#0a1422' : '#0d0710';
+  const seg = 5;
+  const ph = (t.treadPhase % 1) * seg;
+  for (let x = -tr - ph; x < tr; x += seg) {
+    ctx.fillRect(x, -tr - 3, 2, 6);
+    ctx.fillRect(x, tr - 3, 2, 6);
+  }
+
+  // Body — full glow for the player only; enemies get a lighter blur since
+  // several are on screen at once and shadowBlur cost scales with blur size.
+  ctx.fillStyle = isPlayer ? '#0d2236' : (t.bodyColor || '#2a141f');
+  ctx.strokeStyle = isPlayer ? '#00f0ff' : t.color;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = isPlayer ? '#00f0ff' : t.color;
+  ctx.shadowBlur = isPlayer ? 14 : 6;
+  roundRect(-tr + 2, -tr + 4, tr * 2 - 4, tr * 2 - 8, 4);
+  ctx.fill(); ctx.stroke();
+
+  // Body detail line
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = isPlayer ? 'rgba(0,240,255,0.18)' : 'rgba(255,255,255,0.06)';
+  ctx.fillRect(-tr + 4, -2, tr * 2 - 8, 4);
+
+  ctx.restore();
+
+  // Turret (rotates independently)
+  ctx.save();
+  ctx.translate(t.x, t.y);
+  ctx.rotate(t.turret);
+  // Barrel (shadow only on the player's turret)
+  ctx.fillStyle = isPlayer ? '#00f0ff' : t.color;
+  if (isPlayer) { ctx.shadowColor = '#00f0ff'; ctx.shadowBlur = 12; }
+  ctx.fillRect(0, -2.5, tr + 10, 5);
+  // Turret dome
+  ctx.beginPath();
+  ctx.fillStyle = isPlayer ? '#0a3a55' : (t.bodyColor || '#3a1a28');
+  ctx.strokeStyle = isPlayer ? '#00f0ff' : t.color;
+  ctx.lineWidth = 2;
+  ctx.arc(0, 0, tr * 0.55, 0, TAU);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // HP bar (enemy)
+  if (!isPlayer && (t.hp < t.maxHp || t.isMiniBoss)) {
+    ctx.save();
+    const mb = t.isMiniBoss;
+    const w = mb ? 56 : 28, h = mb ? 6 : 4;
+    const by = t.y - tr - (mb ? 20 : 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(t.x - w / 2, by, w, h);
+    const ratio = clamp(t.hp / t.maxHp, 0, 1);
+    ctx.fillStyle = ratio > 0.5 ? '#ffd23f' : (ratio > 0.25 ? '#ff8c42' : '#ff3b3b');
+    ctx.fillRect(t.x - w / 2, by, w * ratio, h);
+    if (mb) {
+      ctx.strokeStyle = t.accent; ctx.lineWidth = 1;
+      ctx.strokeRect(t.x - w / 2, by, w, h);
+      ctx.fillStyle = t.color;
+      ctx.font = 'bold 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(t.name, t.x, by - 5);
+    }
+    ctx.restore();
+  }
+}
+
+/* ----------------------------- Boss render ----------------------------- */
+function drawBoss(b) {
+  const def = BOSSES[b.type];
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  // Phantom fades to near-invisible while blinking (untargetable window)
+  if (b.type === 'phantom' && b.state === 'vanish') {
+    ctx.globalAlpha = clamp(b.telegraph / 0.35, 0, 1) * 0.4;
+  }
+
+  // Spawn ring
+  if (b.spawnAnim > 0) {
+    ctx.save();
+    ctx.globalAlpha = b.spawnAnim;
+    ctx.strokeStyle = def.accent;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, b.r + 30 * (1 - b.spawnAnim) + 20, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Telegraph glow when about to charge (juggernaut) or dash (duelist)
+  if ((b.state === 'telegraph' || b.state === 'idle') && (b.type === 'juggernaut' || b.type === 'duelist')) {
+    if (b.type === 'juggernaut' && b.state === 'telegraph') {
+      const t = 1 - b.telegraph / (b.phase === 2 ? 0.7 : 1.0);
+      ctx.save();
+      ctx.globalAlpha = 0.4 + Math.sin(performance.now() * 0.04) * 0.3;
+      ctx.fillStyle = '#ff3b3b';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      const ang = b.chargeAng || 0;
+      const len = 700;
+      ctx.arc(0, 0, len, ang - 0.08, ang + 0.08);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Body — draw as oversized tank
+  ctx.rotate(b.angle);
+  // Treads
+  const tr = b.r;
+  ctx.fillStyle = '#1a0e14';
+  ctx.fillRect(-tr, -tr - 6, tr * 2, 10);
+  ctx.fillRect(-tr, tr - 4, tr * 2, 10);
+  ctx.fillStyle = '#0a0608';
+  const seg = 7;
+  const ph = (b.treadPhase % 1) * seg;
+  for (let x = -tr - ph; x < tr; x += seg) {
+    ctx.fillRect(x, -tr - 6, 3, 10);
+    ctx.fillRect(x, tr - 4, 3, 10);
+  }
+  // Body
+  ctx.fillStyle = b.bodyColor;
+  ctx.strokeStyle = b.color;
+  ctx.lineWidth = 3;
+  ctx.shadowColor = b.color; ctx.shadowBlur = 22;
+  roundRect(-tr + 2, -tr + 6, tr * 2 - 4, tr * 2 - 12, 8);
+  ctx.fill(); ctx.stroke();
+  // Body plates
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(-tr + 6, -tr + 10, tr * 2 - 12, 4);
+  ctx.fillRect(-tr + 6, tr - 14, tr * 2 - 12, 4);
+  ctx.restore();
+
+  // Turret
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(b.turret);
+  // Big barrel
+  ctx.fillStyle = b.color;
+  ctx.shadowColor = b.color; ctx.shadowBlur = 18;
+  ctx.fillRect(0, -5, tr + 18, 10);
+  // Dome
+  ctx.beginPath();
+  ctx.fillStyle = b.bodyColor;
+  ctx.strokeStyle = b.color; ctx.lineWidth = 3;
+  ctx.arc(0, 0, tr * 0.6, 0, TAU);
+  ctx.fill(); ctx.stroke();
+  // Phase 2 extra detail: spiked ring
+  if (b.phase === 2) {
+    ctx.strokeStyle = b.accent;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = b.accent; ctx.shadowBlur = 16;
+    const spikes = 8;
+    ctx.beginPath();
+    for (let i = 0; i < spikes; i++) {
+      const a = (i / spikes) * TAU + performance.now() * 0.001;
+      const r1 = tr * 0.7, r2 = tr * 0.95;
+      ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+      ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.restore();
+
+  // Boss HP bar (top of screen, full width)
+  const bw = Math.min(560, W * 0.7), bh = 14;
+  const bx = (W - bw) / 2, by = 56;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(bx - 2, by - 2, bw + 4, bh + 4);
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(bx, by, bw, bh);
+  const ratio = Math.max(0, b.hp / b.maxHp);
+  const grad = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+  if (b.phase === 2) {
+    grad.addColorStop(0, '#ff3b3b'); grad.addColorStop(1, '#ffd23f');
+  } else {
+    grad.addColorStop(0, b.color); grad.addColorStop(1, b.accent);
+  }
+  ctx.fillStyle = grad;
+  ctx.shadowColor = b.color; ctx.shadowBlur = 12;
+  ctx.fillRect(bx, by, bw * ratio, bh);
+  // Boss name
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 13px Segoe UI';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(`${def.name}  —  ${Math.ceil(b.hp)} / ${Math.round(b.maxHp)}`, W / 2, by + bh / 2);
+  ctx.restore();
+}
+
+function drawBullets() {
+  if (!bullets.length) return;
+  // Additive glow trail pass for all bullets — 'lighter' compositing fakes the
+  // shadowBlur glow at a fraction of the cost, and batching it in one pass keeps
+  // the save/restore and state changes off the per-bullet path.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const b of bullets) {
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(Math.atan2(b.vy, b.vx));
+    ctx.fillStyle = b.color;
+    // Stepped-alpha trail replaces the per-bullet linear gradient.
+    ctx.globalAlpha = 0.25; ctx.fillRect(-20, -1.5, 14, 3);
+    ctx.globalAlpha = 0.55; ctx.fillRect(-8, -1.5, 8, 3);
+    // Soft glow head
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.arc(0, 0, b.r * 1.6, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+  // Solid core pass (normal compositing).
+  for (const b of bullets) {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
+    ctx.fillStyle = b.color;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.6, 0, TAU); ctx.fill();
+  }
+}
+
+function drawParticles() {
+  if (!particles.length) return;
+  // Pass 1 — smoke, drawn with normal compositing (it must darken, not glow).
+  ctx.save();
+  for (const p of particles) {
+    if (p.kind !== 'smoke') continue;
+    const t = 1 - p.age / p.life;
+    ctx.globalAlpha = t * 0.6;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, TAU); ctx.fill();
+  }
+  // Pass 2 — sparks / embers / flashes with additive compositing. The double
+  // arc (large faint + small bright) replaces shadowBlur glow, which was the
+  // single most expensive draw state in crowded scenes.
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of particles) {
+    const t = 1 - p.age / p.life;
+    if (p.kind === 'flash') {
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = t * 0.35;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, TAU); ctx.fill();
+      ctx.globalAlpha = t * 0.6;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 0.45, 0, TAU); ctx.fill();
+    } else if (p.kind === 'ember') {
+      const fl = 0.6 + 0.4 * Math.sin(p.age * 30 + p.x);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = t * fl * 0.4;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 2.2, 0, TAU); ctx.fill();
+      ctx.globalAlpha = t * fl;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, TAU); ctx.fill();
+    } else if (p.kind === 'spark') {
+      const r = p.size * t + 0.5;
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = t * 0.4;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r * 2, 0, TAU); ctx.fill();
+      ctx.globalAlpha = t;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawPickups() {
+  for (const p of pickups) {
+    const yo = Math.sin(p.bob) * 3;
+    ctx.save();
+    ctx.translate(p.x, p.y + yo);
+    let color = '#ff5577', icon = '+';
+    if (p.type === 'rapid') { color = '#ffd23f'; icon = '⚡'; }
+    else if (p.type === 'shield') { color = '#b6ff3a'; icon = '⛨'; }
+    else { color = '#ff5577'; icon = '✚'; }
+    ctx.shadowColor = color; ctx.shadowBlur = 16;
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath(); ctx.arc(0, 0, p.r, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = color;
+    ctx.font = 'bold 14px Segoe UI';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(icon, 0, 1);
+    ctx.restore();
+  }
+}
+
+// The radar sweep cone + range circles are rotationally static, so they're
+// baked into one sprite and rotated per frame instead of rebuilding a conic
+// gradient every draw.
+let radarSprite = null;
+function getRadarSprite() {
+  if (radarSprite) return radarSprite;
+  const R = 220, PAD = 2, S = (R + PAD) * 2;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const c = cv.getContext('2d');
+  const cx = R + PAD;
+  if (c.createConicGradient) {
+    const g = c.createConicGradient(0, cx, cx);
+    g.addColorStop(0, 'rgba(0, 240, 255, 0.18)');
+    g.addColorStop(0.05, 'rgba(0, 240, 255, 0)');
+    g.addColorStop(1, 'rgba(0, 240, 255, 0)');
+    c.fillStyle = g;
+    c.beginPath(); c.arc(cx, cx, R, 0, TAU); c.fill();
+  }
+  c.strokeStyle = 'rgba(0, 240, 255, 0.12)';
+  c.lineWidth = 1;
+  c.beginPath(); c.arc(cx, cx, R, 0, TAU); c.stroke();
+  c.beginPath(); c.arc(cx, cx, R * 0.66, 0, TAU); c.stroke();
+  c.beginPath(); c.arc(cx, cx, R * 0.33, 0, TAU); c.stroke();
+  radarSprite = cv;
+  return cv;
+}
+
+function drawRadar() {
+  if (!player.alive) return;
+  // Radar ping centered on player showing nearby enemies within a radius,
+  // even those not visible on screen edges.
+  const R = 220, PAD = 2;
+  const sweep = (performance.now() * 0.0012) % TAU;
+  const spr = getRadarSprite();
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  ctx.rotate(sweep);
+  ctx.drawImage(spr, -(R + PAD), -(R + PAD));
+  ctx.rotate(-sweep);
+  // Blips: bright core + faint halo arc instead of shadowBlur.
+  const R2 = R * R;
+  for (const e of enemies) {
+    const dx = e.x - player.x, dy = e.y - player.y;
+    if (dx * dx + dy * dy <= R2) {
+      ctx.fillStyle = e.color;
+      ctx.globalAlpha = 0.25;
+      ctx.beginPath(); ctx.arc(dx, dy, 6, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(dx, dy, 3, 0, TAU); ctx.fill();
+    }
+  }
+  // Drone blips on radar too
+  for (const dr of drones) {
+    const dx = dr.x - player.x, dy = dr.y - player.y;
+    if (dx * dx + dy * dy <= R2) {
+      ctx.fillStyle = '#ffd23f';
+      ctx.globalAlpha = 0.25;
+      ctx.beginPath(); ctx.arc(dx, dy, 7, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(dx, dy, 3.5, 0, TAU); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+/* ----------------------------- Drone render ----------------------------- */
+function drawDrones() {
+  for (const d of drones) {
+    ctx.save();
+    ctx.translate(d.x, d.y);
+
+    // Spawn ring
+    if (d.spawnAnim > 0) {
+      ctx.save();
+      ctx.globalAlpha = d.spawnAnim;
+      ctx.strokeStyle = d.accent;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, d.r + 14 * (1 - d.spawnAnim) + 6, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Lock state: red telegraph ring + dashed line to locked target
+    if (d.state === 'lock') {
+      const t = 1 - d.stateTimer / d.telegraph;
+      ctx.save();
+      ctx.globalAlpha = 0.4 + Math.sin(performance.now() * 0.04) * 0.4;
+      ctx.strokeStyle = '#ff3b3b';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(d.lockX - d.x, d.lockY - d.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Target reticle at lock point
+      ctx.translate(d.lockX - d.x, d.lockY - d.y);
+      ctx.strokeStyle = '#ff3b3b';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, 16 + t * 6, 0, TAU); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-22, 0); ctx.lineTo(-10, 0);
+      ctx.moveTo(10, 0); ctx.lineTo(22, 0);
+      ctx.moveTo(0, -22); ctx.lineTo(0, -10);
+      ctx.moveTo(0, 10); ctx.lineTo(0, 22);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Body — octagonal drone, spinning
+    ctx.rotate(d.spin);
+    const blink = (d.state === 'lock' && Math.sin(performance.now() * 0.03) > 0);
+    ctx.fillStyle = blink ? '#fff' : '#1a0a0a';
+    ctx.strokeStyle = blink ? '#fff' : d.color;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = d.color; ctx.shadowBlur = 14;
+    const sides = 6;
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+      const a = (i / sides) * TAU;
+      const px = Math.cos(a) * d.r, py = Math.sin(a) * d.r;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    // Inner core (eye)
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = blink ? '#ff3b3b' : d.accent;
+    ctx.beginPath(); ctx.arc(0, 0, d.r * 0.4, 0, TAU); ctx.fill();
+    // Rotors (4 small lines)
+    ctx.strokeStyle = d.color;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * d.r, Math.sin(a) * d.r);
+      ctx.lineTo(Math.cos(a) * (d.r + 5), Math.sin(a) * (d.r + 5));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/* ----------------------------- Gadget mount on player tank ----------------------------- */
+function drawGadgetOnTank() {
+  const g = getWeaponGadget();
+  if (!g) return;
+  // Mount the gadget as a side barrel opposite to main turret
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  // Side mount: 120° offset from turret (top-left of tank)
+  const mountAng = player.turret - Math.PI / 2;
+  ctx.rotate(mountAng);
+  // Mount base
+  ctx.fillStyle = '#0d2236';
+  ctx.strokeStyle = '#b6ff3a';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = '#b6ff3a'; ctx.shadowBlur = 8;
+  ctx.fillRect(player.r - 4, -3, 8, 6);
+  // Small barrel pointing outward
+  ctx.fillStyle = '#b6ff3a';
+  ctx.shadowBlur = 6;
+  ctx.fillRect(player.r - 2, -1.5, 10, 3);
+  ctx.restore();
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// Remote squadmate tanks — drawn as translucent allied units with a nameplate.
+// Only peers on the same depth are shown (others are elsewhere in the run).
+function drawPeers() {
+  for (const id in Net.peers) {
+    const p = Net.peers[id];
+    if (p.rx == null || (p.depth | 0) !== (Rogue.depth | 0)) continue;
+    const x = p.rx, y = p.ry;
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.translate(x, y);
+    ctx.rotate(p.ang || 0);
+    // Body
+    ctx.fillStyle = '#1f6f4a';
+    ctx.strokeStyle = '#6effb0';
+    ctx.lineWidth = 2;
+    roundRect(-16, -13, 32, 26, 5);
+    ctx.fill(); ctx.stroke();
+    // Turret
+    ctx.rotate((p.tang || 0) - (p.ang || 0));
+    ctx.fillStyle = '#6effb0';
+    ctx.fillRect(0, -3, 26, 6);
+    ctx.beginPath(); ctx.arc(0, 0, 8, 0, TAU); ctx.fill();
+    ctx.restore();
+    // Nameplate + HP bar (screen-aligned)
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = '#cffff0';
+    ctx.font = '11px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.name || 'هم‌تیمی', x, y - 26);
+    const mx = p.mx || 100, hp = clamp(p.hp || 0, 0, mx);
+    const bw = 34;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(x - bw / 2, y - 22, bw, 4);
+    ctx.fillStyle = hp / mx > 0.3 ? '#6effb0' : '#ff5a5a';
+    ctx.fillRect(x - bw / 2, y - 22, bw * (hp / mx), 4);
+    ctx.restore();
+  }
+}
+
+function render() {
+  // Camera shake
+  ctx.save();
+  if (shake > 0.2) {
+    ctx.translate(rand(-shake, shake) * 0.5, rand(-shake, shake) * 0.5);
+    shake *= 0.88;
+  }
+
+  clear();
+  drawStars();
+  drawClouds();
+  drawDecals();
+  drawHazards();
+  drawPickups();
+  drawRadar();
+  // Bullets under tanks so muzzle looks layered
+  drawBullets();
+  // Enemies
+  for (const e of enemies) {
+    e.bodyColor = e.type === 'light' ? '#3a1018' : (e.type === 'medium' ? '#2a0f3a' : '#0a2a3a');
+    drawTank(e, { isPlayer: false });
+  }
+  // Boss (drawn bigger, with HP bar at top of screen)
+  if (Game.bossActive && Rogue.bossRef) drawBoss(Rogue.bossRef);
+  // Drones
+  drawDrones();
+  // Remote squadmates (co-op)
+  if (Net.state === 'online' && Net.squadCode) drawPeers();
+  // Player
+  if (player.alive) drawTank(player, { isPlayer: true });
+  // Gadget mounted on tank (drawn on top of player)
+  if (player.alive) drawGadgetOnTank();
+  // Shockwave rings
+  drawShockwaves();
+  // Particles on top
+  drawParticles();
+
+  // Vignette (pre-rendered layer)
+  ctx.drawImage(vignetteLayer, 0, 0, W, H);
+
+  // Low-HP danger vignette (pulsing red edges) — pre-rendered at full opacity,
+  // pulsed via globalAlpha instead of rebuilding the gradient each frame.
+  if (player.alive && player.hp / player.maxHp < 0.3) {
+    ctx.save();
+    ctx.globalAlpha = 0.55 + 0.45 * Math.sin(performance.now() * 0.006);
+    ctx.drawImage(dangerVignetteLayer, 0, 0, W, H);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // Touch joysticks are screen-space UI — draw after the camera-shake restore.
+  drawTouchSticks();
+}
+
+/* ========================================================================
+   GAME FLOW
+   ======================================================================== */
+function startNewGame() {
+  Game.score = 0;
+  Game.levelIndex = 0;
+  Game.droneTimer = 0;
+  drones = [];
+  player.maxHp = 100 + Meta.upgrades.hp * 10;
+  player.hp = player.maxHp;
+  player.maxLives = 5;
+  player.lives = player.maxLives;
+  player.speedMult = 1 + Meta.upgrades.speed * 0.05;
+  player.dmgMult = 1 + Meta.upgrades.damage * 0.05;
+  player.spdMult = 1;
+  player.fireRateMult = 1;
+  player.weaponMult = {};
+  player.dodge = 0;
+  player.berserker = false;
+  player.pickupMult = 1;
+  player.ramResist = 1;
+  player.lifestealPerKill = 0;
+  equipOwnedGadgets();
+  openArmory();
+}
+
+function openArmory() {
+  Audio.ui();
+  Game.state = 'armory';
+  const lvl = LEVELS[Game.levelIndex];
+  $('armorySub').textContent = `مرحله ${Game.levelIndex + 1} — ${lvl.name}`;
+  // Build arm cards
+  const grid = $('armGrid');
+  grid.innerHTML = '';
+  WEAPONS.forEach((w, i) => {
+    const card = document.createElement('div');
+    card.className = 'arm-card' + (w.id === Game.selectedWeapon ? ' selected' : '');
+    card.innerHTML = `
+      <div class="arm-icon">${w.icon}</div>
+      <div class="arm-name">${w.name}</div>
+      <div class="arm-desc">${w.desc}</div>
+      <div class="arm-stats">
+        <div class="stat-bar" title="نرخ آتش"><i style="width:${w.bars.rate * 100}%"></i></div>
+        <div class="stat-bar" title="آسیب"><i style="width:${w.bars.dmg * 100}%"></i></div>
+        <div class="stat-bar" title="سرعت"><i style="width:${w.bars.spd * 100}%"></i></div>
+      </div>
+    `;
+    card.onclick = () => {
+      Audio.ui();
+      Game.selectedWeapon = w.id;
+      [...grid.children].forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+    };
+    grid.appendChild(card);
+  });
+  showScreen('armory');
+  $('hud').classList.remove('active');
+}
+
+function beginLevel() {
+  Audio.ui();
+  const lvl = LEVELS[Game.levelIndex];
+  Game.state = 'battle';
+  player.weapon = WEAPONS.find(w => w.id === Game.selectedWeapon);
+  player.fireRate = player.weapon.fireRate;
+  player.bulletDmg = player.weapon.bulletDmg;
+  player.bulletSpd = player.weapon.bulletSpd;
+  player.hp = player.maxHp;
+  player.invuln = 1.5;
+  player.alive = true;
+  player.x = W / 2; player.y = H / 2;
+  player.vx = 0; player.vy = 0;
+  player.rapidTimer = 0;
+  player.gadgetCooldown = 0;
+  bullets = []; enemies = []; particles = []; pickups = []; decals = []; drones = []; shockwaves = []; hazards = [];
+  Game.droneTimer = 0;
+  // queue enemy spawns
+  Game.spawnQueue = [];
+  lvl.enemies.forEach(g => { for (let i = 0; i < g.count; i++) Game.spawnQueue.push(g.type); });
+  Game.enemiesRemaining = Game.spawnQueue.length;
+  Game.enemiesToSpawn = Game.spawnQueue.length;
+  Game.spawnTimer = 0;
+  Game.levelClearDelay = 0;
+  // initial spawn of a few
+  const initial = Math.min(3, Game.spawnQueue.length);
+  for (let i = 0; i < initial; i++) spawnEnemy(Game.spawnQueue.shift());
+  // level pickups
+  for (let i = 0; i < lvl.pickups; i++) spawnPickup();
+  initClouds();
+  $('hud').classList.add('active');
+  showScreen(null);
+  resetHudCache();
+  updateHUD();
+  updateLifeBelt();
+  updateHpHud();
+  refreshGadgetHud();
+  refreshTouchButtons();
+  toast(`مرحله ${Game.levelIndex + 1}: ${lvl.name}`);
+  setTimeout(showGadgetIntroIfNew, 1600);
+}
+
+function levelComplete() {
+  Game.state = 'levelclear';
+  Audio.win();
+  toast('مرحله کامل شد!');
+  Game.levelIndex++;
+  setTimeout(() => {
+    if (Game.levelIndex >= LEVELS.length) endGame(true);
+    else openArmory();
+  }, 1500);
+}
+
+function endGame(victory) {
+  Game.state = victory ? 'victory' : 'gameover';
+  $('hud').classList.remove('active');
+  // Convert score → shop credits (10% of score, victory bonus +50%)
+  const creditsGained = Math.floor(Game.score * (victory ? 0.15 : 0.10));
+  if (creditsGained > 0) {
+    Meta.credits += creditsGained;
+    saveMeta();
+    toast(`+${creditsGained} CREDITS برای فروشگاه`, 2600);
+  }
+  if (victory) {
+    $('victoryScore').textContent = Game.score;
+    showScreen('victory');
+    Audio.win();
+  } else {
+    $('finalScore').textContent = Game.score;
+    showScreen('gameover');
+    Audio.lose();
+  }
+}
+
+/* ========================================================================
+   ROGUELITE FLOW
+   ======================================================================== */
+const META_DEFS = {
+  hp:     { name: 'ورق زرهی', icon: '🛡', max: 5, baseCost: 5, costMult: 2,
+            desc: lvl => `حداکثر جان شروع +${lvl * 10} (مجموعاً +۱۰۰ در سطح ۵)` },
+  speed:  { name: 'موتور تقویتی', icon: '⚙', max: 5, baseCost: 6, costMult: 2,
+            desc: lvl => `سرعت حرکت +${lvl * 5}٪` },
+  damage: { name: 'گلوله اوج', icon: '💥', max: 5, baseCost: 8, costMult: 2,
+            desc: lvl => `آسیب گلوله +${lvl * 5}٪` },
+  life:   { name: 'جان اضافی', icon: '❤', max: 3, baseCost: 15, costMult: 2,
+            desc: lvl => `+${lvl} جان شروع هر ران` },
+  starter:{ name: 'ماژول شروع', icon: '🎁', max: 3, baseCost: 25, costMult: 2,
+            desc: lvl => STARTER_MODULE_BY_LEVEL[lvl]
+              ? `شروع با «${MODULES_BY_ID[STARTER_MODULE_BY_LEVEL[lvl]].name}»`
+              : 'بدون ماژول شروع' },
+};
+function metaUpgradeCost(key, currentLevel) {
+  const d = META_DEFS[key];
+  return Math.floor(d.baseCost * Math.pow(d.costMult, currentLevel));
+}
+
+function openForge() {
+  Audio.ui();
+  Game.state = 'forge';
+  $('forgeAether').textContent = Meta.aether;
+  $('forgeBestDepth').textContent = Meta.bestDepth;
+  $('forgeBestScore').textContent = Meta.bestScore;
+  $('forgeBossesKilled').textContent = Meta.bossesKilled;
+  const grid = $('forgeGrid');
+  grid.innerHTML = '';
+  Object.entries(META_DEFS).forEach(([key, def]) => {
+    const lvl = Meta.upgrades[key] || 0;
+    const maxed = lvl >= def.max;
+    const cost = metaUpgradeCost(key, lvl);
+    const canBuy = !maxed && Meta.aether >= cost;
+    const card = document.createElement('div');
+    card.className = 'upgrade-card' + (maxed ? ' maxed' : '');
+    // pip row
+    let pips = '';
+    for (let i = 0; i < def.max; i++) pips += `<div class="up-pip${i < lvl ? ' on' : ''}"></div>`;
+    card.innerHTML = `
+      <div class="up-row">
+        <div class="up-name">${def.name}</div>
+        <div class="up-ico">${def.icon}</div>
+      </div>
+      <div class="up-desc">${def.desc(lvl)}${maxed ? ' (MAX)' : ''}</div>
+      <div class="up-pip-row">${pips}</div>
+      <button class="up-buy" ${maxed || !canBuy ? 'disabled' : ''}>
+        ${maxed ? 'تکمیل شد' : `خرید — ${cost} Aether`}
+      </button>
+    `;
+    if (!maxed && canBuy) {
+      card.querySelector('.up-buy').onclick = () => {
+        Meta.aether -= cost;
+        Meta.upgrades[key] = lvl + 1;
+        saveMeta();
+        Audio.pickup();
+        openForge(); // re-render
+      };
+    }
+    grid.appendChild(card);
+  });
+  showScreen('forge');
+}
+
+function startRoguelite() {
+  // Reset run state
+  Rogue.depth = 0;
+  Rogue.modules = [];
+  Rogue.aetherThisRun = 0;
+  Rogue.bossType = null;
+  Rogue.bossRef = null;
+  Rogue.scoreMult = 1;
+  Rogue.aetherMult = 1;
+  Rogue.usedSecondWind = false;
+  Rogue.runStats = { kills: 0, bossesKilled: 0, score: 0, maxDepth: 0, miniBossesKilled: 0 };
+  // Configure player from meta
+  Game.mode = 'roguelite';
+  Game.score = 0;
+  Game.droneTimer = 0;
+  drones = [];
+  const baseMaxHp = 100;
+  player.maxHp = baseMaxHp + Meta.upgrades.hp * 10;
+  player.hp = player.maxHp;
+  player.maxLives = 1 + Meta.upgrades.life;
+  player.lives = player.maxLives;
+  player.speedMult = 1 + Meta.upgrades.speed * 0.05;
+  player.dmgMult = 1 + Meta.upgrades.damage * 0.05;
+  player.spdMult = 1;
+  player.fireRateMult = 1;
+  player.lifestealPerKill = 0;
+  player.ramResist = 1;
+  player.dodge = 0;
+  player.berserker = false;
+  player.pickupMult = 1;
+  player.weaponMult = {};
+  equipOwnedGadgets();
+  // Apply starter module from forge
+  if (Meta.upgrades.starter > 0) {
+    const starterId = STARTER_MODULE_BY_LEVEL[Meta.upgrades.starter];
+    if (starterId) applyModule(starterId);
+  }
+  // Skip armory in rogue — use cannon by default (player picks weapon via relics instead)
+  Game.selectedWeapon = 'cannon';
+  enterNextRogueDepth();
+}
+
+function applyModule(id) {
+  const m = MODULES_BY_ID[id];
+  if (!m) return;
+  Rogue.modules.push(id);
+  m.apply(player, { modules: Rogue.modules });
+  refreshModuleTray();
+}
+
+function refreshModuleTray() {
+  const tray = $('moduleTray');
+  tray.innerHTML = '';
+  Rogue.modules.forEach((id, i) => {
+    const m = MODULES_BY_ID[id];
+    const chip = document.createElement('div');
+    chip.className = 'mod-chip ' + m.rarity;
+    chip.textContent = m.icon;
+    chip.title = `${m.name} — ${m.desc}`;
+    chip.style.animationDelay = (i * 0.04) + 's';
+    tray.appendChild(chip);
+  });
+}
+
+function enterNextRogueDepth() {
+  Rogue.depth += 1;
+  Rogue.runStats.maxDepth = Math.max(Rogue.runStats.maxDepth, Rogue.depth);
+  const depth = Rogue.depth;
+  const isBoss = (depth % 5 === 0);
+  Rogue.isBossDepth = isBoss;
+  Game.enemiesRemaining = 0;
+  Game.spawnQueue = [];
+  Game.levelClearDelay = 0;
+  Game.bossActive = false;
+  Rogue.bossRef = null;
+
+  if (isBoss) {
+    Rogue.bossType = pickBossForDepth(depth);
+    showBossIntro(Rogue.bossType, depth);
+    return; // bossIntro overlay triggers spawn after timeout
+  }
+  Rogue.bossType = null;
+  beginRogueBattleDepth();
+}
+
+function showBossIntro(bossType, depth) {
+  const b = BOSSES[bossType];
+  Game.state = 'bossintro';
+  $('bossIntroName').textContent = b.name;
+  $('bossIntroName').style.background = `linear-gradient(180deg, #fff, ${b.color} 60%, #400)`;
+  $('bossIntroName').style.webkitBackgroundClip = 'text';
+  $('bossIntroName').style.backgroundClip = 'text';
+  $('bossIntroSubtitle').textContent = `${b.subtitle} — عمق ${depth}`;
+  Audio.lose();
+  showScreen('bossIntro');
+  setTimeout(() => {
+    beginRogueBossDepth(bossType);
+  }, 2400);
+}
+
+function beginRogueBattleDepth() {
+  Audio.ui();
+  Game.state = 'battle';
+  setupPlayerForDepth();
+  const depth = Rogue.depth;
+  // Procedural wave generation
+  const totalCount = 3 + Math.floor(depth * 0.7);
+  const queue = [];
+  for (let i = 0; i < totalCount; i++) {
+    queue.push(pickEnemyType(depth));
+  }
+  Game.spawnQueue = queue;
+  Game.enemiesRemaining = queue.length;
+  Game.enemiesToSpawn = queue.length;
+  Game.spawnTimer = 0;
+  // Mini-boss depths (3, 8, 13, ...): one elite alongside a lighter wave.
+  Rogue.isMiniBossDepth = (depth % 5 === 3) && depth >= 3;
+  if (Rogue.isMiniBossDepth) {
+    spawnMiniBoss(pickMiniBoss(depth), depth);
+    // Thin out the accompanying wave so the mini-boss is the focus.
+    Game.spawnQueue = queue.slice(0, Math.max(2, Math.floor(queue.length * 0.5)));
+    Game.enemiesRemaining = Game.spawnQueue.length + 1; // +1 for the mini-boss
+    Game.enemiesToSpawn = Game.enemiesRemaining;
+  }
+  // initial spawn
+  const initial = Math.min(3, Game.spawnQueue.length);
+  for (let i = 0; i < initial; i++) spawnRogueEnemy(Game.spawnQueue.shift());
+  // depth-scaled pickup
+  if (depth % 2 === 0) spawnPickup();
+  initClouds();
+  showHUDForMode();
+  showScreen(null);
+  updateHUD();
+  updateLifeBelt();
+  toast(`عمق ${depth}`);
+  if (depth === 1) setTimeout(showGadgetIntroIfNew, 1600);
+}
+
+function beginRogueBossDepth(bossType) {
+  Game.state = 'battle';
+  setupPlayerForDepth();
+  spawnBoss(bossType, Rogue.depth);
+  Game.bossActive = true;
+  initClouds();
+  showHUDForMode();
+  showScreen(null);
+  updateHUD();
+  updateLifeBelt();
+  toast(`باس! عمق ${Rogue.depth}`);
+}
+
+function setupPlayerForDepth() {
+  // Weapon recompute: apply meta + module multipliers to base weapon stats
+  player.weapon = WEAPONS.find(w => w.id === Game.selectedWeapon);
+  player.fireRate = player.weapon.fireRate;    // base fire rate; mult applied in updatePlayer
+  player.hp = player.maxHp;
+  player.invuln = (Rogue.modules.includes('shield')) ? 3 : 1.2;
+  player.alive = true;
+  player.x = W / 2; player.y = H / 2;
+  player.vx = 0; player.vy = 0;
+  player.rapidTimer = 0;
+  player.cooldown = 0;
+  player.speed = 170 * (player.speedMult || 1);
+  bullets = []; enemies = []; particles = []; pickups = []; decals = []; drones = []; shockwaves = []; hazards = [];
+  Game.droneTimer = 0;
+  player.gadgetCooldown = 0;
+  refreshModuleTray();
+  refreshGadgetHud();
+  refreshTouchButtons();
+}
+
+function showHUDForMode() {
+  const rogue = Game.mode === 'roguelite';
+  $('depthBlock').style.display = rogue ? '' : 'none';
+  $('aetherBlock').style.display = rogue ? '' : 'none';
+  $('levelVal').textContent = rogue ? Rogue.depth : (Game.levelIndex + 1);
+  $('depthVal').textContent = Rogue.depth;
+  $('aetherVal').textContent = Rogue.aetherThisRun;
+  $('hud').classList.add('active');
+  resetHudCache();
+}
+
+function pickEnemyType(depth) {
+  // Weighted by depth: more heavy/elite as depth grows
+  const r = Math.random();
+  if (depth < 3) {
+    return r < 0.85 ? 'light' : 'medium';
+  } else if (depth < 7) {
+    if (r < 0.55) return 'light';
+    if (r < 0.9) return 'medium';
+    return 'heavy';
+  } else {
+    if (r < 0.35) return 'light';
+    if (r < 0.7) return 'medium';
+    return 'heavy';
+  }
+}
+
+function spawnRogueEnemy(type) {
+  const def = ENEMY_TYPES[type];
+  let x, y, tries = 0;
+  do {
+    const edge = randi(0, 3);
+    if (edge === 0) { x = rand(40, W - 40); y = 30; }
+    else if (edge === 1) { x = W - 30; y = rand(40, H - 40); }
+    else if (edge === 2) { x = rand(40, W - 40); y = H - 30; }
+    else { x = 30; y = rand(40, H - 40); }
+    tries++;
+  } while (dist2(x, y, player.x, player.y) < 240 * 240 && tries < 10);
+  // Elite chance (8%) for non-boss depths
+  const eliteChance = 0.08 + Math.min(0.12, Rogue.depth * 0.005);
+  const isElite = !Rogue.isBossDepth && Math.random() < eliteChance;
+  const hpScale = isElite ? 2 : (1 + Rogue.depth * 0.04);
+  const e = {
+    type, x, y, r: def.r * (isElite ? 1.25 : 1),
+    hp: def.hp * hpScale, maxHp: def.hp * hpScale,
+    speed: def.speed, color: isElite ? '#ffd23f' : def.color, accent: isElite ? '#fff' : def.accent,
+    fireRate: def.fireRate * (isElite ? 0.7 : 1), bulletDmg: def.bulletDmg * (isElite ? 1.5 : 1),
+    bulletSpd: def.bulletSpd, range: def.range,
+    score: Math.round(def.score * (isElite ? 3 : 1) * (1 + Rogue.depth * 0.05)),
+    ai: def.ai, isElite,
+    angle: Math.random() * TAU, turret: 0,
+    cooldown: rand(0.5, 1.5), treadPhase: 0,
+    vx: 0, vy: 0, wanderAng: Math.random() * TAU, wanderTimer: 0,
+    spawnAnim: 1,
+  };
+  enemies.push(e);
+}
+
+function spawnMiniBoss(miniType, depth) {
+  const def = MINIBOSS_TYPES[miniType];
+  const scale = 1 + Math.max(0, depth - 3) * 0.06; // grows with depth
+  const hp = Math.round(def.hp * scale);
+  const e = {
+    type: 'heavy', miniType, isMiniBoss: true,
+    name: def.name, subtitle: def.subtitle, volley: def.volley,
+    x: W / 2, y: 60, r: def.r,
+    hp, maxHp: hp,
+    speed: def.speed, color: def.color, accent: def.accent,
+    fireRate: def.fireRate, bulletDmg: Math.round(def.bulletDmg * (1 + depth * 0.03)),
+    bulletSpd: def.bulletSpd, range: def.range,
+    score: Math.round(def.score * (1 + depth * 0.05)),
+    ai: def.ai, isElite: false,
+    angle: Math.PI / 2, turret: Math.PI / 2,
+    cooldown: 1.2, treadPhase: 0,
+    vx: 0, vy: 0, wanderAng: Math.random() * TAU, wanderTimer: 0,
+    spawnAnim: 1,
+  };
+  enemies.push(e);
+  toast(`مینی‌باس: ${def.name}!`);
+  Audio.lose();
+  shake = Math.min(20, shake + 10);
+}
+
+/* ========================================================================
+   BOSS LOGIC
+   ======================================================================== */
+function spawnBoss(type, depth) {
+  const b = BOSSES[type];
+  const scale = bossScale(depth);
+  Rogue.bossRef = {
+    type, x: W / 2, y: 100, r: b.r,
+    hp: b.baseHp * scale.hp, maxHp: b.baseHp * scale.hp,
+    speed: b.baseSpeed, color: b.color, accent: b.accent, bodyColor: b.bodyColor,
+    contactDmg: b.contactDmg * scale.dmg, score: b.score,
+    angle: 0, turret: Math.PI / 2, treadPhase: 0,
+    vx: 0, vy: 0,
+    phase: 1, patternTimer: 0, patternIdx: 0,
+    cooldown: 1.5, spawnAnim: 1,
+    telegraph: 0, // for charges/specials
+    state: 'idle',
+  };
+}
+
+function updateBoss(b, dt) {
+  b.spawnAnim = Math.max(0, b.spawnAnim - dt * 0.8);
+  const dx = player.x - b.x, dy = player.y - b.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const nx = dx / d, ny = dy / d;
+  b.turret = angleLerp(b.turret, Math.atan2(dy, dx), 1 - Math.pow(0.0008, dt));
+
+  // Phase transition at 50% HP
+  if (b.phase === 1 && b.hp < b.maxHp * 0.5) {
+    b.phase = 2;
+    spawnExplosion(b.x, b.y, b.color, 1.8);
+    shake = Math.min(28, shake + 14);
+    Audio.explosion();
+    toast('باس خشمگین شد!');
+  }
+
+  // Pattern dispatch
+  b.patternTimer -= dt;
+  b.cooldown -= dt;
+  if (b.type === 'juggernaut') updateJuggernaut(b, dt, dx, dy, d, nx, ny);
+  else if (b.type === 'hive') updateHive(b, dt, dx, dy, d, nx, ny);
+  else if (b.type === 'duelist') updateDuelist(b, dt, dx, dy, d, nx, ny);
+  else if (b.type === 'warden') updateWarden(b, dt, dx, dy, d, nx, ny);
+  else if (b.type === 'phantom') updatePhantom(b, dt, dx, dy, d, nx, ny);
+
+  // Body clamp + tread phase
+  b.x = clamp(b.x, b.r, W - b.r);
+  b.y = clamp(b.y, b.r, H - b.r);
+  b.treadPhase += Math.hypot(b.vx, b.vy) * dt * 0.04;
+  if (Math.hypot(b.vx, b.vy) > 5) b.angle = angleLerp(b.angle, Math.atan2(b.vy, b.vx), 1 - Math.pow(0.0005, dt));
+
+  // Contact damage
+  if (player.alive && player.invuln <= 0) {
+    const pd2 = dist2(b.x, b.y, player.x, player.y);
+    const rs = b.r + player.r;
+    if (pd2 < rs * rs) {
+      damagePlayer(b.contactDmg * dt * 4, b);
+      const pd = Math.sqrt(pd2) || 1;
+      player.x += (player.x - b.x) / pd * 60 * dt;
+      player.y += (player.y - b.y) / pd * 60 * dt;
+    }
+  }
+}
+
+function updateJuggernaut(b, dt, dx, dy, d, nx, ny) {
+  // States: idle → telegraph (wind up) → charge → recover
+  if (b.state === 'idle') {
+    // Slow stalk toward player
+    b.vx = lerp(b.vx, nx * b.speed * 0.5, 1 - Math.pow(0.001, dt));
+    b.vy = lerp(b.vy, ny * b.speed * 0.5, 1 - Math.pow(0.001, dt));
+    if (b.cooldown <= 0) {
+      b.state = 'telegraph';
+      b.telegraph = b.phase === 2 ? 0.7 : 1.0;
+      b.vx = 0; b.vy = 0;
+    }
+    // Also shoot occasionally in phase 2
+    if (b.phase === 2 && b.patternTimer <= 0) {
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * TAU + performance.now() * 0.001;
+        fireBullet(b.x, b.y, a, 12, 260, 'enemy', b.color);
+      }
+      b.patternTimer = 2.2;
+    }
+  } else if (b.state === 'telegraph') {
+    b.telegraph -= dt;
+    b.vx *= 0.9; b.vy *= 0.9;
+    if (b.telegraph <= 0) {
+      b.state = 'charge';
+      b.chargeAng = Math.atan2(dy, dx);
+      b.chargeDur = 0.7;
+      Audio.enemyShoot();
+    }
+  } else if (b.state === 'charge') {
+    b.chargeDur -= dt;
+    const sp = b.phase === 2 ? 480 : 380;
+    b.vx = Math.cos(b.chargeAng) * sp;
+    b.vy = Math.sin(b.chargeAng) * sp;
+    // Shockwave trail particles
+    if (Math.random() < 0.4) {
+      spawnHit(b.x, b.y, b.accent);
+    }
+    if (b.chargeDur <= 0 || b.x < b.r + 5 || b.x > W - b.r - 5 || b.y < b.r + 5 || b.y > H - b.r - 5) {
+      // Wall slam: shockwave
+      spawnExplosion(b.x, b.y, b.accent, 1.0);
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * TAU;
+        fireBullet(b.x, b.y, a, 14, 200, 'enemy', b.color);
+      }
+      b.state = 'recover';
+      b.cooldown = b.phase === 2 ? 1.4 : 1.9;
+    }
+  } else if (b.state === 'recover') {
+    b.vx *= 0.85; b.vy *= 0.85;
+    if (b.cooldown <= 0) {
+      b.state = 'idle';
+    }
+  }
+}
+
+function updateHive(b, dt, dx, dy, d, nx, ny) {
+  // Keep distance + summon minions + spiral fire
+  const want = 280;
+  let mvx = 0, mvy = 0;
+  if (d > want + 30) { mvx = nx; mvy = ny; }
+  else if (d < want - 30) { mvx = -nx; mvy = -ny; }
+  else { mvx = -ny; mvy = nx; } // strafe
+  b.vx = lerp(b.vx, mvx * b.speed, 1 - Math.pow(0.001, dt));
+  b.vy = lerp(b.vy, mvy * b.speed, 1 - Math.pow(0.001, dt));
+  // Summon minions
+  if (b.cooldown <= 0 && enemies.length < (b.phase === 2 ? 6 : 4)) {
+    const n = b.phase === 2 ? 3 : 2;
+    for (let i = 0; i < n; i++) {
+      const ang = Math.random() * TAU;
+      spawnRogueEnemyAt(b.x + Math.cos(ang) * 40, b.y + Math.sin(ang) * 40, 'light');
+    }
+    Audio.enemyShoot();
+    b.cooldown = b.phase === 2 ? 4 : 5.5;
+  }
+  // Spiral fire
+  if (b.patternTimer <= 0) {
+    const arms = b.phase === 2 ? 4 : 3;
+    for (let i = 0; i < arms; i++) {
+      const baseA = performance.now() * 0.003 + (i / arms) * TAU;
+      fireBullet(b.x, b.y, baseA, 14, 280, 'enemy', b.color);
+    }
+    b.patternTimer = 0.18;
+  }
+}
+
+function updateDuelist(b, dt, dx, dy, d, nx, ny) {
+  // Dash patterns + barrage circles
+  if (b.state === 'idle') {
+    // hover at medium range
+    const want = 220;
+    let mvx = 0, mvy = 0;
+    if (d > want + 30) { mvx = nx; mvy = ny; }
+    else if (d < want - 30) { mvx = -nx; mvy = -ny; }
+    else { mvx = -ny; mvy = nx; }
+    b.vx = lerp(b.vx, mvx * b.speed, 1 - Math.pow(0.0005, dt));
+    b.vy = lerp(b.vy, mvy * b.speed, 1 - Math.pow(0.0005, dt));
+    if (b.cooldown <= 0) {
+      b.state = 'dash';
+      b.chargeAng = Math.atan2(dy, dx);
+      b.chargeDur = 0.45;
+      Audio.enemyShoot();
+    }
+  } else if (b.state === 'dash') {
+    b.chargeDur -= dt;
+    const sp = 520;
+    b.vx = Math.cos(b.chargeAng) * sp;
+    b.vy = Math.sin(b.chargeAng) * sp;
+    if (b.chargeDur <= 0) {
+      // Burst ring on stop
+      const ring = b.phase === 2 ? 18 : 12;
+      for (let i = 0; i < ring; i++) {
+        const a = (i / ring) * TAU + Math.random() * 0.2;
+        fireBullet(b.x, b.y, a, 16, 320, 'enemy', b.color);
+      }
+      b.state = 'idle';
+      b.cooldown = b.phase === 2 ? 1.6 : 2.2;
+    }
+  }
+  // Continuous light fire toward player while idle
+  if (b.state === 'idle' && b.patternTimer <= 0) {
+    fireBullet(b.x, b.y, b.turret, 12, 360, 'enemy', b.color);
+    b.patternTimer = 0.35;
+  }
+}
+
+/* ---- The Warden: siege artillery. Rains telegraphed mortars, walls of fire ---- */
+function updateWarden(b, dt, dx, dy, d, nx, ny) {
+  // Slowly repositions to keep medium-long range; zones the arena with mortars.
+  const want = 340;
+  let mvx, mvy;
+  if (d > want + 40) { mvx = nx; mvy = ny; }
+  else if (d < want - 40) { mvx = -nx; mvy = -ny; }
+  else { mvx = -ny * 0.6; mvy = nx * 0.6; }
+  b.vx = lerp(b.vx, mvx * b.speed, 1 - Math.pow(0.002, dt));
+  b.vy = lerp(b.vy, mvy * b.speed, 1 - Math.pow(0.002, dt));
+  // Mortar barrage: drop telegraphed AoE circles, some led onto the player.
+  if (b.cooldown <= 0) {
+    const shots = b.phase === 2 ? 5 : 3;
+    for (let i = 0; i < shots; i++) {
+      // First shot targets the player's current spot; rest scatter around them.
+      const tx = i === 0 ? player.x : player.x + rand(-160, 160);
+      const ty = i === 0 ? player.y : player.y + rand(-160, 160);
+      spawnHazard(
+        clamp(tx, 40, W - 40), clamp(ty, 40, H - 40),
+        b.phase === 2 ? 70 : 62,          // blast radius
+        b.phase === 2 ? 0.9 : 1.1,        // warn time (shorter in phase 2)
+        Math.round(b.contactDmg * 1.6), b.accent
+      );
+    }
+    b.cooldown = b.phase === 2 ? 1.9 : 2.6;
+  }
+  // Suppressing fire: slow aimed shots so the player can't just sit still.
+  if (b.patternTimer <= 0) {
+    fireBullet(b.x, b.y, b.turret + rand(-0.05, 0.05), 16, 300, 'enemy', b.color);
+    b.patternTimer = b.phase === 2 ? 0.6 : 0.9;
+  }
+}
+
+/* ---- Phantom: teleporting assassin. Blinks near the player and burst-fires ---- */
+function updatePhantom(b, dt, dx, dy, d, nx, ny) {
+  if (b.state === 'idle') {
+    // Circle-strafe at close range between blinks.
+    const want = 180;
+    let mvx, mvy;
+    if (d > want + 30) { mvx = nx; mvy = ny; }
+    else { mvx = -ny; mvy = nx; }
+    b.vx = lerp(b.vx, mvx * b.speed, 1 - Math.pow(0.001, dt));
+    b.vy = lerp(b.vy, mvy * b.speed, 1 - Math.pow(0.001, dt));
+    // Aimed shots while visible
+    if (b.patternTimer <= 0) {
+      const spread = b.phase === 2 ? 3 : 1;
+      for (let i = 0; i < spread; i++) {
+        fireBullet(b.x, b.y, b.turret + (i - (spread - 1) / 2) * 0.18, 15, 380, 'enemy', b.color);
+      }
+      b.patternTimer = b.phase === 2 ? 0.5 : 0.8;
+    }
+    if (b.cooldown <= 0) { b.state = 'vanish'; b.telegraph = 0.35; }
+  } else if (b.state === 'vanish') {
+    // Fade out, become briefly untargetable, then blink to a flank of the player.
+    b.telegraph -= dt;
+    b.vx *= 0.8; b.vy *= 0.8;
+    if (b.telegraph <= 0) {
+      spawnExplosion(b.x, b.y, b.color, 0.8);
+      const ang = Math.atan2(dy, dx) + (Math.random() < 0.5 ? 1 : -1) * rand(1.8, 2.4);
+      const dist = rand(150, 210);
+      b.x = clamp(player.x + Math.cos(ang) * dist, b.r, W - b.r);
+      b.y = clamp(player.y + Math.sin(ang) * dist, b.r, H - b.r);
+      spawnExplosion(b.x, b.y, b.accent, 0.9);
+      shake = Math.min(20, shake + 6);
+      // Blink burst: ring of bullets on arrival (bigger in phase 2)
+      const ring = b.phase === 2 ? 14 : 8;
+      for (let i = 0; i < ring; i++) {
+        fireBullet(b.x, b.y, (i / ring) * TAU, 14, 300, 'enemy', b.color);
+      }
+      b.state = 'idle';
+      b.cooldown = b.phase === 2 ? 2.6 : 3.6;
+    }
+  }
+}
+// Phantom is untargetable/invisible while blinking — used by aim + hit tests.
+function bossUntargetable(b) { return b && b.type === 'phantom' && b.state === 'vanish'; }
+
+/* --------- Telegraphed ground hazards (warn ring -> detonation) --------- */
+function spawnHazard(x, y, r, warn, dmg, color) {
+  hazards.push({ x, y, r, warn, maxWarn: warn, dmg, color, done: false, flash: 0 });
+}
+function updateHazards(dt) {
+  for (let i = hazards.length - 1; i >= 0; i--) {
+    const h = hazards[i];
+    if (!h.done) {
+      h.warn -= dt;
+      if (h.warn <= 0) {
+        // Detonate
+        h.done = true; h.flash = 0.3;
+        spawnExplosion(h.x, h.y, h.color, 1.3);
+        shockwaves.push({ x: h.x, y: h.y, r: 8, maxR: h.r + 20, age: 0, life: 0.5, color: h.color });
+        shake = Math.min(24, shake + 8);
+        Audio.explosion();
+        if (player.alive && player.invuln <= 0 && dist2(h.x, h.y, player.x, player.y) < h.r * h.r) {
+          damagePlayer(h.dmg, null);
+        }
+      }
+    } else {
+      h.flash -= dt;
+      if (h.flash <= 0) hazards.splice(i, 1);
+    }
+  }
+}
+function drawHazards() {
+  for (const h of hazards) {
+    ctx.save();
+    if (!h.done) {
+      const t = 1 - h.warn / h.maxWarn; // 0..1 fill
+      // Danger fill
+      ctx.globalAlpha = 0.12 + 0.18 * t;
+      ctx.fillStyle = h.color;
+      ctx.beginPath(); ctx.arc(h.x, h.y, h.r, 0, TAU); ctx.fill();
+      // Shrinking targeting ring
+      ctx.globalAlpha = 0.5 + 0.3 * Math.sin(performance.now() * 0.02);
+      ctx.strokeStyle = h.color; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(h.x, h.y, h.r * (1 - t * 0.7), 0, TAU); ctx.stroke();
+      // Crosshair
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      ctx.moveTo(h.x - h.r, h.y); ctx.lineTo(h.x + h.r, h.y);
+      ctx.moveTo(h.x, h.y - h.r); ctx.lineTo(h.x, h.y + h.r);
+      ctx.stroke();
+    } else if (h.flash > 0) {
+      ctx.globalAlpha = h.flash / 0.3;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(h.x, h.y, h.r, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function spawnRogueEnemyAt(x, y, type) {
+  const def = ENEMY_TYPES[type];
+  enemies.push({
+    type, x, y, r: def.r, hp: def.hp, maxHp: def.hp,
+    speed: def.speed, color: def.color, accent: def.accent,
+    fireRate: def.fireRate, bulletDmg: def.bulletDmg, bulletSpd: def.bulletSpd,
+    range: def.range, score: def.score, ai: def.ai, isElite: false,
+    angle: Math.random() * TAU, turret: 0,
+    cooldown: rand(0.5, 1.5), treadPhase: 0,
+    vx: 0, vy: 0, wanderAng: Math.random() * TAU, wanderTimer: 0,
+    spawnAnim: 1,
+  });
+}
+
+function damageBoss(b, dmg) {
+  b.hp -= dmg;
+  if (Math.random() < 0.3) spawnHit(b.x + rand(-b.r, b.r), b.y + rand(-b.r, b.r), b.accent);
+  if (b.hp <= 0) killBoss();
+}
+
+function killBoss() {
+  const b = Rogue.bossRef;
+  if (!b) return;
+  // Multi-burst explosion
+  for (let i = 0; i < 5; i++) {
+    setTimeout(() => {
+      if (!Rogue.bossRef && i > 0) return;
+      spawnExplosion(
+        b.x + rand(-b.r, b.r),
+        b.y + rand(-b.r, b.r),
+        b.color, 1.6
+      );
+    }, i * 140);
+  }
+  Game.score += Math.round(b.score * (Rogue.scoreMult || 1));
+  Rogue.runStats.score = Game.score;
+  Rogue.runStats.bossesKilled += 1;
+  // Squad bonus: +25% aether when playing in a squad, and teammates get a cut.
+  const squadMult = Net.inSquad() ? 1.25 : 1;
+  const aetherGain = Math.round(20 * (Rogue.aetherMult || 1) * squadMult);
+  Rogue.aetherThisRun += aetherGain;
+  if (Net.inSquad()) Net.event('boss', { depth: Rogue.depth, boss: b.type });
+  Rogue.bossPendingChoice = true; // flag to prevent double-trigger from update()
+  Game.bossActive = false;
+  Rogue.bossRef = null;
+  Audio.win();
+  toast(`باس نابود شد! +${aetherGain} Aether`);
+  // Trigger boss relic choice (big) after delay
+  setTimeout(() => {
+    if (Rogue.bossPendingChoice) {
+      Rogue.bossPendingChoice = false;
+      openRelicChoice(true);
+    }
+  }, 1500);
+}
+
+/* ========================================================================
+   RELIC CHOICE (between depths)
+   ======================================================================== */
+function openRelicChoice(isBossReward) {
+  Audio.pickup();
+  Game.state = 'relicchoice';
+  // Filter out modules already at legendary-stacking-cap (we allow re-pick for stacking)
+  const pool = MODULES.filter(m => {
+    // Always allow, but glasscannon/secondwind once-per-run
+    if (m.id === 'glasscannon' && Rogue.modules.includes('glasscannon')) return false;
+    if (m.id === 'secondwind' && Rogue.modules.includes('secondwind')) return false;
+    return true;
+  });
+  // Boss reward = higher rarity weighting, guaranteed 1 legendary
+  const choices = pickRelicChoices(pool, isBossReward ? 3 : 3, isBossReward);
+  const row = $('relicRow');
+  row.innerHTML = '';
+  $('relicPrompt').textContent = isBossReward ? 'پاداش باس — ماژول قدرتمند انتخاب کن' : 'یک ماژول انتخاب کن';
+  $('relicSub').textContent = isBossReward
+    ? `عمق ${Rogue.depth} پاک شد — BOSS DEFEATED`
+    : `عمق ${Rogue.depth} پاک شد — DEPTH CLEARED`;
+  choices.forEach(m => {
+    const card = document.createElement('div');
+    card.className = `relic-card rarity-${m.rarity}`;
+    card.innerHTML = `
+      <div class="relic-icon">${m.icon}</div>
+      <div class="relic-name">${m.name}</div>
+      <div class="relic-rarity-tag">${rarityLabel(m.rarity)}</div>
+      <div class="relic-desc">${m.desc}</div>
+    `;
+    card.onclick = () => {
+      Audio.ui();
+      applyModule(m.id);
+      toast(`${m.name} فعال شد`);
+      closeRelicChoiceAndContinue();
+    };
+    row.appendChild(card);
+  });
+  showScreen('relicChoice');
+  $('hud').classList.remove('active');
+}
+
+function rarityLabel(r) {
+  return ({ common: 'COMMON', rare: 'RARE', epic: 'EPIC', legendary: 'LEGENDARY' })[r] || r;
+}
+
+function pickRelicChoices(pool, n, bossReward) {
+  // Weighted by rarity
+  const weights = { common: 60, rare: 30, epic: 10, legendary: 3 };
+  const result = [];
+  const usedIds = new Set();
+  // Boss reward: guarantee 1 legendary or epic
+  if (bossReward) {
+    const high = pool.filter(m => (m.rarity === 'legendary' || m.rarity === 'epic') && !usedIds.has(m.id));
+    if (high.length) {
+      const pick = high[randi(0, high.length - 1)];
+      result.push(pick); usedIds.add(pick.id);
+    }
+  }
+  while (result.length < n) {
+    const weighted = [];
+    for (const m of pool) {
+      if (usedIds.has(m.id)) continue;
+      const w = weights[m.rarity] || 10;
+      for (let i = 0; i < w; i++) weighted.push(m);
+    }
+    if (!weighted.length) break;
+    const pick = weighted[randi(0, weighted.length - 1)];
+    result.push(pick); usedIds.add(pick.id);
+  }
+  return result;
+}
+
+function closeRelicChoiceAndContinue() {
+  // Pickups: also heal a bit
+  player.hp = Math.min(player.maxHp, player.hp + 15);
+  enterNextRogueDepth();
+}
+
+/* ========================================================================
+   ROGUE DEATH + META SAVE
+   ======================================================================== */
+function endRogueRun() {
+  // Bank aether + update best stats
+  const gained = Rogue.aetherThisRun;
+  Meta.aether += gained;
+  Meta.bestDepth = Math.max(Meta.bestDepth, Rogue.runStats.maxDepth);
+  Meta.bestScore = Math.max(Meta.bestScore, Game.score);
+  Meta.bestKills = Math.max(Meta.bestKills, Rogue.runStats.kills);
+  Meta.bossesKilled += Rogue.runStats.bossesKilled;
+  Meta.runsCompleted += 1;
+  // Convert score → shop credits (10% of score)
+  const creditsGained = Math.floor(Game.score * 0.10);
+  Meta.credits += creditsGained;
+  saveMeta();
+  // Show death screen
+  Game.state = 'roguedeath';
+  $('hud').classList.remove('active');
+  $('rsDepth').textContent = Rogue.runStats.maxDepth;
+  $('rsScore').textContent = Game.score;
+  $('rsKills').textContent = Rogue.runStats.kills;
+  $('rsAether').textContent = gained;
+  const subs = [
+    'تانک نابود شد',
+    'پایان نزول',
+    'بازگشت به هاب',
+  ];
+  $('rogueDeathSub').textContent = subs[randi(0, subs.length - 1)];
+  showScreen('rogueDeath');
+  if (creditsGained > 0) toast(`+${creditsGained} CREDITS برای فروشگاه`, 2600);
+  Audio.lose();
+}
+
+/* ----------------------------- HUD updates ----------------------------- */
+const _hudCache = { score: -1, enemies: -1, level: -1, depth: -1, aether: -1 };
+function setHudText(id, val, key) {
+  if (_hudCache[key] === val) return;
+  $(id).textContent = val;
+  _hudCache[key] = val;
+}
+function updateHUD() {
+  setHudText('scoreVal', Game.score, 'score');
+  if (Game.mode === 'roguelite') {
+    // In boss depth, show boss HP as "enemies remaining"
+    const enemies = (Game.bossActive && Rogue.bossRef)
+      ? Math.max(0, Math.ceil(Rogue.bossRef.hp))
+      : Game.enemiesRemaining;
+    setHudText('enemiesVal', enemies, 'enemies');
+    setHudText('levelVal', Rogue.depth, 'level');
+    setHudText('depthVal', Rogue.depth, 'depth');
+    setHudText('aetherVal', Rogue.aetherThisRun, 'aether');
+  } else {
+    setHudText('enemiesVal', Game.enemiesRemaining, 'enemies');
+    setHudText('levelVal', Game.levelIndex + 1, 'level');
+  }
+}
+function updateLifeBelt() {
+  const belt = $('lifeBelt');
+  belt.innerHTML = '';
+  for (let i = 0; i < player.maxLives; i++) {
+    const h = document.createElement('div');
+    h.className = 'heart' + (i >= player.lives ? ' lost' : '');
+    belt.appendChild(h);
+  }
+}
+
+/* ----------------------------- Pause ----------------------------- */
+function togglePause() {
+  if (Game.state === 'battle') {
+    Game.state = 'paused';
+    Touch.reset(); Touch.weaponFiring = false; // release any held touch input
+    $('pauseOverlay').classList.add('active');
+  } else if (Game.state === 'paused') {
+    Game.state = 'battle';
+    $('pauseOverlay').classList.remove('active');
+    Game.last = performance.now();
+  }
+}
+
+/* ========================================================================
+   MAIN LOOP (fixed timestep)
+   ======================================================================== */
+const STEP = 1 / 60;
+function update(dt) {
+  if (Game.state !== 'battle') return;
+
+  updatePlayer(dt);
+  fireGadgetWeapon(dt);          // right-click gadget weapon
+  updateAbilityCooldowns(dt);    // E/R/F ability cooldowns
+
+  // Enemy spawning
+  if (Game.spawnQueue.length > 0) {
+    Game.spawnTimer -= dt;
+    if (Game.spawnTimer <= 0 && enemies.length < 6) {
+      if (Game.mode === 'roguelite') spawnRogueEnemy(Game.spawnQueue.shift());
+      else spawnEnemy(Game.spawnQueue.shift());
+      Game.spawnTimer = rand(1.5, 3.2);
+    }
+  }
+
+  // Drone spawning (both modes)
+  maybeSpawnDrones(dt);
+
+  for (const e of enemies) updateEnemy(e, dt);
+  for (const d of drones.slice()) updateDrone(d, dt);
+  if (Game.bossActive && Rogue.bossRef) updateBoss(Rogue.bossRef, dt);
+  updateBullets(dt);
+  updateParticles(dt);
+  updateShockwaves(dt);
+  updateHazards(dt);
+  updatePickups(dt);
+  updateDecals(dt);
+  updateClouds(dt);
+
+  // Note: HUD DOM writes happen once per rendered frame (refreshBattleHud),
+  // not here — running them per physics step wastes layout/paint work.
+
+  // Level clear check (rogue: skip — handled by depthClear)
+  if (Game.mode === 'campaign') {
+    if (Game.enemiesRemaining === 0 && Game.spawnQueue.length === 0 && player.alive) {
+      if (Game.levelClearDelay === 0) Game.levelClearDelay = 0.001;
+      Game.levelClearDelay += dt;
+      if (Game.levelClearDelay > 1.2) levelComplete();
+    }
+  } else {
+    // Rogue non-boss depth clear (enemies + queue empty AND boss dead or no boss)
+    if (!Game.bossActive && Game.enemiesRemaining === 0 && Game.spawnQueue.length === 0 && player.alive) {
+      if (Game.levelClearDelay === 0) Game.levelClearDelay = 0.001;
+      Game.levelClearDelay += dt;
+      if (Game.levelClearDelay > 0.8) {
+        Game.levelClearDelay = 0;
+        openRelicChoice(false);
+      }
+    }
+    // Boss depth clear: boss dead AND no minions left (only if killBoss didn't already trigger)
+    if (Rogue.isBossDepth && !Rogue.bossPendingChoice && !Game.bossActive && !Rogue.bossRef && Game.enemiesRemaining === 0 && Game.spawnQueue.length === 0 && player.alive) {
+      if (Game.levelClearDelay === 0) Game.levelClearDelay = 0.001;
+      Game.levelClearDelay += dt;
+      if (Game.levelClearDelay > 0.8) {
+        Game.levelClearDelay = 0;
+        openRelicChoice(true);
+      }
+    }
+  }
+}
+
+// Invalidate HUD dirty-check caches so the next refresh writes every field.
+// Call after the HUD DOM is (re)built at battle start.
+function resetHudCache() {
+  _hpHudCache.hp = -1; _hpHudCache.mx = -1; _hpHudCache.tier = ' ';
+  _hudCache.score = -1; _hudCache.enemies = -1; _hudCache.level = -1;
+  _hudCache.depth = -1; _hudCache.aether = -1;
+  for (const k in _gadgetHudCache) delete _gadgetHudCache[k];
+}
+
+// All battle HUD DOM writes, batched into one call per rendered frame.
+// Each of these dirty-checks internally, so calling every frame is cheap.
+function refreshBattleHud() {
+  updateHUD();
+  updateHpHud();
+  updateGadgetHudRuntime();
+  updateTouchButtonsRuntime();
+}
+
+const MAX_STEPS_PER_FRAME = 5; // clamp so a slow frame can't trigger a death spiral
+function frame(now) {
+  if (!Game.last) Game.last = now;
+  let dt = (now - Game.last) / 1000;
+  Game.last = now;
+  if (dt > 0.25) dt = 0.25; // avoid huge jumps after tab switch
+  Game.acc += dt;
+  // Fixed-timestep with a hard cap on catch-up steps. If update() ever costs
+  // more than STEP of wall-time, the accumulator would otherwise grow without
+  // bound and each frame would run more steps than the last (the "spiral of
+  // death"). Capping steps and draining the leftover keeps the sim stable —
+  // it just runs slightly slow-motion instead of freezing.
+  let steps = 0;
+  while (Game.acc >= STEP && steps < MAX_STEPS_PER_FRAME) {
+    update(STEP);
+    Game.acc -= STEP;
+    steps++;
+  }
+  if (Game.acc > STEP) Game.acc = 0; // discard backlog we couldn't process
+
+  // Multiplayer: interpolate peers every frame, broadcast our state while alive.
+  if (Net.state === 'online' && Net.squadCode) {
+    Net.interpolate(dt);
+    if (Game.state === 'battle') Net.sendState(false);
+  }
+
+  // Always render (so menu clouds animate too)
+  if (Game.state === 'battle' || Game.state === 'paused' || Game.state === 'levelclear') {
+    if (Game.state === 'battle') refreshBattleHud(); // DOM writes once per frame, not per physics step
+    render();
+  } else if (Game.state === 'menu' || Game.state === 'armory' || Game.state === 'forge' || Game.state === 'bossintro' || Game.state === 'relicchoice' || Game.state === 'roguedeath' || Game.state === 'gameover' || Game.state === 'victory') {
+    // Animated background on non-battle screens
+    renderMenuBackground();
+  }
+  requestAnimationFrame(frame);
+}
+
+function renderMenuBackground() {
+  clear();
+  drawStars();
+  updateClouds(STEP);
+  drawClouds();
+  // Some drifting decorative tanks
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  const t = performance.now() * 0.0003;
+  for (let i = 0; i < 5; i++) {
+    const x = ((t * (40 + i * 12) + i * 220) % (W + 200)) - 100;
+    const y = 80 + i * 110 + Math.sin(t * 4 + i) * 14;
+    drawTank({ x, y, r: 14, angle: 0, turret: Math.sin(t * 2 + i) * 0.6, treadPhase: t * 8 + i,
+               color: ['#00f0ff', '#ff2bd6', '#b6ff3a'][i % 3], bodyColor: '#101824' },
+             { isPlayer: false });
+  }
+  ctx.restore();
+  // Vignette (pre-rendered layer)
+  ctx.drawImage(menuVignetteLayer, 0, 0, W, H);
+}
+
+/* ========================================================================
+   EVENT BINDINGS
+   ======================================================================== */
+// Campaign mode
+$('startBtn').onclick = () => {
+  Audio.ensure();
+  Game.mode = 'campaign';
+  startNewGame();
+};
+// Roguelite mode
+$('rogueBtn').onclick = () => {
+  Audio.ensure();
+  Game.mode = 'roguelite';
+  startRoguelite();
+};
+// Forge (meta upgrades)
+$('forgeBtn').onclick = () => { Audio.ensure(); openForge(); };
+$('forgeBackBtn').onclick = () => { Game.state = 'menu'; showScreen('menu'); };
+
+// Shop (gadgets)
+$('shopBtn').onclick = () => { Audio.ensure(); openShop(); };
+$('shopBackBtn').onclick = () => { Game.state = 'menu'; showScreen('menu'); };
+
+// Squad (multiplayer)
+$('squadBtn').onclick = () => {
+  Audio.ensure();
+  const panel = $('squadPanel');
+  const open = panel.style.display === 'none';
+  panel.style.display = open ? 'block' : 'none';
+  if (open) refreshSquadHud();
+};
+$('squadCreateBtn').onclick = () => { Audio.ensure(); Net.createSquad(); };
+$('squadJoinBtn').onclick = () => {
+  const code = prompt('کد اسکواد را وارد کنید:');
+  if (code) Net.joinSquad(code);
+};
+$('squadInviteBtn').onclick = () => Net.share();
+$('squadLeaveBtn').onclick = () => Net.leaveSquad();
+
+// Render squad membership into the menu panel and the in-battle strip.
+function refreshSquadHud() {
+  const status = $('squadStatus'), members = $('squadMembers'), leaveBtn = $('squadLeaveBtn');
+  if (status) {
+    if (!Net.url) status.textContent = 'سرور چندنفره پیکربندی نشده';
+    else if (Net.state === 'connecting') status.textContent = 'در حال اتصال…';
+    else if (Net.squadCode) status.textContent = 'اسکواد فعال — کد: ' + Net.squadCode;
+    else status.textContent = 'آفلاین — یک اسکواد بسازید یا به یکی بپیوندید';
+  }
+  if (members) {
+    members.innerHTML = '';
+    for (const m of Net.members) {
+      const chip = document.createElement('span');
+      chip.className = 'squad-chip' + (m.leader ? ' leader' : '');
+      chip.textContent = m.name || 'بازیکن';
+      members.appendChild(chip);
+    }
+  }
+  if (leaveBtn) leaveBtn.style.display = Net.squadCode ? '' : 'none';
+
+  // In-battle strip: one pill per remote peer.
+  const strip = $('squadStrip');
+  if (strip) {
+    if (Net.squadCode && Net.inSquad()) {
+      strip.style.display = 'flex';
+      strip.innerHTML = '';
+      for (const id in Net.peers) {
+        const p = Net.peers[id];
+        const el = document.createElement('div');
+        el.className = 'sq' + ((p.hp || 0) <= 0 ? ' down' : '');
+        el.innerHTML = '<span class="dot"></span>' + (p.name || 'هم‌تیمی') + ' · ع' + (p.depth | 0);
+        strip.appendChild(el);
+      }
+    } else {
+      strip.style.display = 'none';
+    }
+  }
+}
+
+// Campaign armory / deploy
+$('deployBtn').onclick = () => beginLevel();
+
+// Campaign game over / victory
+$('retryBtn').onclick = () => { Game.mode = 'campaign'; startNewGame(); };
+$('goMenuBtn').onclick = () => { Game.state = 'menu'; showScreen('menu'); Game.mode = 'campaign'; };
+$('vicMenuBtn').onclick = () => { Game.state = 'menu'; showScreen('menu'); Game.mode = 'campaign'; };
+
+// Rogue death screen
+$('rogueRetryBtn').onclick = () => { Game.mode = 'roguelite'; startRoguelite(); };
+$('rogueForgeBtn').onclick = () => { openForge(); };
+$('rogueMenuBtn').onclick = () => { Game.state = 'menu'; showScreen('menu'); Game.mode = 'campaign'; };
+
+// Pause
+$('pauseBtn').onclick = togglePause;
+$('resumeBtn').onclick = togglePause;
+$('quitBtn').onclick = () => {
+  $('pauseOverlay').classList.remove('active');
+  if (Game.mode === 'roguelite') endRogueRun();
+  else {
+    Game.state = 'menu';
+    $('hud').classList.remove('active');
+    showScreen('menu');
+  }
+};
+$('muteBtn').onclick = () => {
+  Audio.muted = !Audio.muted;
+  $('muteBtn').textContent = Audio.muted ? '🔇' : '🔊';
+  if (!Audio.muted) Audio.ui();
+};
+
+// Init
+initClouds();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

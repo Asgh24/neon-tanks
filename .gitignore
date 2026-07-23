@@ -1,0 +1,6 @@
+.claude/
+.zcode/
+node_modules/
+.wrangler/
+.dev.vars
+*.log
