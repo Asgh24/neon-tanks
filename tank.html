@@ -780,14 +780,24 @@
 
   /* On-screen touch buttons (mobile / Telegram Mini App) */
   #touchButtons {
-    position: absolute; left: 14px; bottom: 96px;
-    display: none; flex-direction: column-reverse; gap: 12px; align-items: flex-start;
+    position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
+    display: none; flex-direction: row; gap: 12px; align-items: center;
     z-index: 12; pointer-events: none;
   }
   body.touch #touchButtons { display: flex; }
-  /* On touch devices the gadget cooldown panel lives on the LEFT above the
-     action buttons (right side is reserved for the movement stick). */
-  body.touch #gadgetHud { bottom: 250px; left: 14px; right: auto; align-items: flex-start; transform: scale(0.9); transform-origin: bottom left; }
+  /* The touch buttons themselves indicate cooldown; the desktop gadget panel
+     only eats screen space on phones (corners belong to the two sticks). */
+  body.touch #gadgetHud { display: none; }
+
+  /* Landscape prompt — the battle layout is designed for landscape phones. */
+  #rotateHint {
+    position: fixed; inset: 0; z-index: 40; display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: rgba(4,6,12,0.93); color: var(--text); text-align: center; padding: 24px;
+  }
+  #rotateHint.active { display: flex; }
+  #rotateHint .rot-ico { font-size: 56px; animation: rotHint 1.8s ease-in-out infinite; }
+  @keyframes rotHint { 0%, 25% { transform: rotate(0); } 65%, 100% { transform: rotate(90deg); } }
   .touch-btn {
     pointer-events: auto;
     width: 66px; height: 66px; border-radius: 50%;
@@ -1058,6 +1068,12 @@
 </div>
 
 <div id="toast"></div>
+
+<div id="rotateHint">
+  <div class="rot-ico">📱</div>
+  <div style="font-size:15px; line-height:2">برای تجربه‌ی بهتر گوشی را بچرخانید<br><b>حالت افقی (Landscape)</b></div>
+  <button class="btn" id="rotateDismiss" style="font-size:12px; padding:8px 20px">ادامه در حالت عمودی</button>
+</div>
 
 <script>
 "use strict";
@@ -1442,6 +1458,11 @@ function resize() {
   canvas.width = Math.floor(W * DPR);
   canvas.height = Math.floor(H * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  // Once the phone is actually in landscape, ask Telegram to keep it there.
+  if (touch && vpW > vpH && !resize._locked && Tg.wa && Tg.wa.lockOrientation) {
+    resize._locked = true;
+    try { Tg.wa.lockOrientation(); } catch (e) {}
+  }
   buildStaticLayers();
 }
 // Telegram fires this when its viewport changes (keyboard, expand animation).
@@ -1564,6 +1585,12 @@ const Touch = {
   DEAD: 8,                // dead-zone (px)
   move: { id: null, ox: 0, oy: 0, cx: 0, cy: 0 },
   aim:  { id: null, ox: 0, oy: 0, cx: 0, cy: 0 },
+  // Fixed on-screen pad anchors: move bottom-right, aim/fire bottom-left.
+  // A touch landing near a pad snaps the stick base to the pad center so the
+  // pads behave like real designed buttons; touches elsewhere in the same
+  // half still spawn a floating stick.
+  movePad() { return { x: W - 118, y: H - 112 }; },
+  aimPad()  { return { x: 118, y: H - 112 }; },
   reset() {
     this.moveX = this.moveY = this.moveMag = 0;
     this.aimX = this.aimY = this.aimMag = 0;
@@ -1587,23 +1614,41 @@ if (Tg.isTouch()) {
   addEventListener('DOMContentLoaded', () => {
     const hint = document.querySelector('.controls-hint');
     if (hint) hint.innerHTML = `
-      <div class="ctrl-card"><b>حرکت / Move</b>جوی‌استیک سمت راست</div>
-      <div class="ctrl-card"><b>نشانه و شلیک</b>جوی‌استیک سمت چپ</div>
-      <div class="ctrl-card"><b>تیربار</b>دکمه‌ی بنفش پایین چپ</div>
-      <div class="ctrl-card"><b>گجت‌ها</b>دکمه‌های گرد سمت چپ</div>`;
+      <div class="ctrl-card"><b>حرکت / Move</b>پد آبی پایین راست</div>
+      <div class="ctrl-card"><b>نشانه و شلیک</b>پد صورتی پایین چپ — تا وقتی لمس باشد شلیک می‌کند</div>
+      <div class="ctrl-card"><b>تیربار</b>دکمه‌ی بنفش پایین وسط</div>
+      <div class="ctrl-card"><b>گجت‌ها</b>دکمه‌های گرد پایین صفحه</div>`;
   });
   const rectXY = (t) => { const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top, inRect: t.clientY - r.top >= 0 }; };
   canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     Audio.ensure();
+    // First battle touch = the user gesture we need for fullscreen/orientation.
+    if (Game.state === 'battle' && !Touch._fsTried) {
+      Touch._fsTried = true;
+      try { if (Tg.wa && Tg.wa.requestFullscreen) Tg.wa.requestFullscreen(); } catch (err) {}
+      try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (err) {}
+    }
     for (const t of e.changedTouches) {
       const p = rectXY(t);
       if (Game.state !== 'battle') { mouse.x = p.x; mouse.y = p.y; mouse.down = true; continue; }
       const rightHalf = p.x >= W * 0.5;
       if (rightHalf && Touch.move.id === null) {
-        Touch.move.id = t.identifier; Touch.move.ox = p.x; Touch.move.oy = p.y; Touch.move.cx = p.x; Touch.move.cy = p.y;
+        const pad = Touch.movePad();
+        const snap = Math.hypot(p.x - pad.x, p.y - pad.y) < Touch.R * 1.7;
+        Touch.move.id = t.identifier;
+        Touch.move.ox = snap ? pad.x : p.x; Touch.move.oy = snap ? pad.y : p.y;
+        const r = Touch._update(Touch.move, p.x, p.y);
+        Touch.moveX = r.nx * r.mag; Touch.moveY = r.ny * r.mag; Touch.moveMag = r.mag;
       } else if (!rightHalf && Touch.aim.id === null) {
-        Touch.aim.id = t.identifier; Touch.aim.ox = p.x; Touch.aim.oy = p.y; Touch.aim.cx = p.x; Touch.aim.cy = p.y;
+        const pad = Touch.aimPad();
+        const snap = Math.hypot(p.x - pad.x, p.y - pad.y) < Touch.R * 1.7;
+        Touch.aim.id = t.identifier;
+        Touch.aim.ox = snap ? pad.x : p.x; Touch.aim.oy = snap ? pad.y : p.y;
+        const r = Touch._update(Touch.aim, p.x, p.y);
+        if (r.mag > 0) { Touch.aimX = r.nx; Touch.aimY = r.ny; }
+        Touch.aimMag = r.mag;
+        // Holding the pad fires continuously even with no direction change.
         Touch.firing = true;
       }
     }
@@ -2868,20 +2913,42 @@ function updateTouchButtonsRuntime() {
 }
 
 /* Draw the two floating joysticks on the canvas (called from render()). */
+let _rotateShown = false, _rotateDismissed = false;
+function updateRotateHint() {
+  const need = Touch.enabled && Game.state === 'battle' && !_rotateDismissed
+    && window.innerHeight > window.innerWidth;
+  if (need !== _rotateShown) { _rotateShown = need; $('rotateHint').classList.toggle('active', need); }
+}
+$('rotateDismiss').onclick = () => { _rotateDismissed = true; updateRotateHint(); };
+
 function drawTouchSticks() {
   if (!Touch.enabled || Game.state !== 'battle') return;
-  const ring = (s, active) => {
+  // Pads are always visible so the controls read as designed buttons:
+  // cyan = movement (bottom-right), magenta = aim & fire (bottom-left).
+  const drawPad = (bx, by, color, active, icon) => {
     ctx.save();
-    ctx.globalAlpha = active ? 0.5 : 0.18;
-    ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(s.ox, s.oy, Touch.R, 0, TAU); ctx.stroke();
-    ctx.globalAlpha = active ? 0.85 : 0;
-    ctx.fillStyle = '#00f0ff';
+    ctx.globalAlpha = active ? 0.55 : 0.22;
+    ctx.strokeStyle = color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(bx, by, Touch.R, 0, TAU); ctx.stroke();
+    if (!active) {
+      ctx.globalAlpha = 0.32; ctx.fillStyle = color;
+      ctx.font = '22px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(icon, bx, by);
+    }
+    ctx.restore();
+  };
+  const knob = (s, color) => {
+    ctx.save();
+    ctx.globalAlpha = 0.85; ctx.fillStyle = color;
     ctx.beginPath(); ctx.arc(s.cx, s.cy, 22, 0, TAU); ctx.fill();
     ctx.restore();
   };
-  if (Touch.move.id !== null) ring(Touch.move, true);
-  if (Touch.aim.id !== null) ring(Touch.aim, true);
+  const mp = Touch.movePad(), ap = Touch.aimPad();
+  const mActive = Touch.move.id !== null, aActive = Touch.aim.id !== null;
+  drawPad(mActive ? Touch.move.ox : mp.x, mActive ? Touch.move.oy : mp.y, '#00f0ff', mActive, '✜');
+  drawPad(aActive ? Touch.aim.ox : ap.x, aActive ? Touch.aim.oy : ap.y, '#ff2bd6', aActive, '🎯');
+  if (mActive) knob(Touch.move, '#00f0ff');
+  if (aActive) knob(Touch.aim, '#ff2bd6');
 }
 
 const _gadgetHudCache = {}; // per-gadget last-written width% / text / cooldown class
@@ -4982,6 +5049,8 @@ function frame(now) {
     Net.interpolate(dt);
     if (Game.state === 'battle') Net.sendState(false);
   }
+
+  if (Touch.enabled) updateRotateHint(); // runs in every state so the overlay never sticks
 
   // Always render (so menu clouds animate too)
   if (Game.state === 'battle' || Game.state === 'paused' || Game.state === 'levelclear') {
