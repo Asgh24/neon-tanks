@@ -1,0 +1,26 @@
+name = "neon-tanks"
+main = "src/worker.js"
+compatibility_date = "2026-07-25"
+
+# The game itself is a single static file. Serving it from the same Worker that
+# owns the WebSocket endpoint means the client can derive its server URL from
+# location.host — no build step, no meta tags, no second deploy.
+[assets]
+directory = "./public"
+
+# One Durable Object per room code (WebSocket Hibernation API) + one singleton
+# that tracks open public rooms for the "quick play" button.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "GameRoom"
+
+[[durable_objects.bindings]]
+name = "MATCH"
+class_name = "Matchmaker"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom", "Matchmaker"]
+
+[observability]
+enabled = true

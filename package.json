@@ -1,0 +1,30 @@
+{
+  "name": "neon-tanks",
+  "version": "2.0.0",
+  "private": true,
+  "description": "NEON TANKS — neon roguelite tank shooter with host-authoritative online co-op on Cloudflare Workers",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:lan": "wrangler dev --ip 0.0.0.0",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "test": "node tests/run-all.mjs"
+  },
+  "keywords": [
+    "game",
+    "tank",
+    "shooter",
+    "html5",
+    "neon",
+    "roguelite",
+    "multiplayer",
+    "cloudflare",
+    "durable-objects"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "devDependencies": {
+    "playwright": "^1.62.1",
+    "wrangler": "^4.113.0"
+  }
+}

@@ -6,11 +6,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#04060c">
-<meta name="mp-server" content="wss://neon-tanks-mp.rexaref.workers.dev/ws">
-<meta name="mp-bot" content="neonxtankbot">
-<meta name="mp-app" content="neonXtank">
-<title>NEON TANKS — نبرد زرهی</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<meta name="description" content="NEON TANKS - بازی تانک شوتر 2D با گرافیک نئون، مود Roguelite، و Multiplayer آنلاین">
+<meta name="keywords" content="game, tank, shooter, neon, roguelike, multiplayer, html5">
+<title>NEON TANKS — نبرد زرهی | بازی آنلاین تانک</title>
+<meta property="og:title" content="NEON TANKS — نبرد زرهی">
+<meta property="og:description" content="بازی تانک نئونی روگ‌لایک با کوپ آنلاین تا ۴ نفر — مستقیم در مرورگر.">
+<meta property="og:type" content="website">
 <style>
   /* ===========================================================================
    * NEON TANKS
@@ -54,7 +55,7 @@
     -webkit-user-select: none;
     user-select: none;
     cursor: crosshair;
-    /* Mobile / Telegram Mini App hardening */
+    /* Mobile hardening: no scroll, no rubber-band, no double-tap zoom */
     position: fixed;
     inset: 0;
     overscroll-behavior: none;
@@ -87,7 +88,9 @@
       0 0 60px rgba(0, 240, 255, 0.15),
       inset 0 0 80px rgba(0, 0, 0, 0.7);
     border-radius: 6px;
-    image-rendering: pixelated;
+    /* The world is rendered at a fixed 1600x900 and scaled to fit, so smooth
+       filtering looks better than nearest-neighbour here. */
+    image-rendering: auto;
   }
 
   /* ----------------------------- Overlay screens ----------------------------- */
@@ -492,6 +495,13 @@
   .squad-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
   .squad-actions .btn { padding: 8px 14px; font-size: 13px; }
   .squad-hint { margin-top: 12px; font-size: 11px; opacity: 0.6; line-height: 1.6; }
+  .squad-name-row { display: flex; align-items: center; gap: 8px; justify-content: center; margin-bottom: 10px; font-size: 12px; color: #cffff0; }
+  .squad-name-row input {
+    background: rgba(0,0,0,0.45); border: 1px solid rgba(110,255,176,0.45); color: #eafff5;
+    border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; width: 160px; text-align: center;
+  }
+  .squad-name-row input:focus { outline: none; border-color: #6effb0; box-shadow: 0 0 12px rgba(110,255,176,0.35); }
+  .squad-chip.self { border-color: #ffd23f; color: #ffe9a8; }
   #squadStrip {
     position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
     display: flex; gap: 8px; z-index: 5; pointer-events: none;
@@ -778,7 +788,7 @@
   }
   .gadget-cd-fill { height: 100%; width: 100%; background: var(--neon); transition: width 0.1s linear; }
 
-  /* On-screen touch buttons (mobile / Telegram Mini App) */
+  /* On-screen touch buttons (mobile) */
   #touchButtons {
     position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
     display: none; flex-direction: row; gap: 12px; align-items: center;
@@ -933,7 +943,7 @@
   <div id="squadStrip" style="display:none"></div>
   <div id="moduleTray"></div>
   <div id="gadgetHud"></div>
-  <!-- On-screen action buttons (mobile / Telegram). Filled in by JS. -->
+  <!-- On-screen action buttons (mobile). Filled in by JS. -->
   <div id="touchButtons"></div>
 </div>
 
@@ -961,16 +971,25 @@
     <button class="btn" id="squadBtn" style="border-color:#6effb0;box-shadow:0 0 22px rgba(110,255,176,0.3),inset 0 0 16px rgba(110,255,176,0.08);background:linear-gradient(135deg,rgba(110,255,176,0.18),rgba(110,255,176,0.04))">Squad / اسکواد</button>
   </div>
   <div id="squadPanel" class="squad-panel" style="display:none">
-    <div class="squad-title">اسکواد چندنفره</div>
-    <div id="squadStatus" class="squad-status">آفلاین — یک اسکواد بسازید یا به یکی بپیوندید</div>
+    <div class="squad-title">بازی آنلاین — کوپ تا ۴ نفر</div>
+    <div class="squad-name-row">
+      <label for="nameInput">نام شما</label>
+      <input id="nameInput" maxlength="16" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="squadStatus" class="squad-status">آفلاین — یک اتاق بسازید یا به یکی بپیوندید</div>
     <div id="squadMembers" class="squad-members"></div>
     <div class="squad-actions">
-      <button class="btn" id="squadCreateBtn">ساخت اسکواد</button>
+      <button class="btn" id="quickPlayBtn">بازی سریع</button>
+      <button class="btn" id="squadCreateBtn">ساخت اتاق</button>
       <button class="btn" id="squadJoinBtn">پیوستن با کد</button>
-      <button class="btn gold" id="squadInviteBtn">دعوت دوستان</button>
-      <button class="btn danger" id="squadLeaveBtn" style="display:none">ترک اسکواد</button>
+      <button class="btn gold" id="squadInviteBtn">کپی لینک دعوت</button>
+      <button class="btn danger" id="squadLeaveBtn" style="display:none">ترک اتاق</button>
     </div>
-    <div class="squad-hint">با اکانت تلگرام وارد می‌شوید. هم‌تیمی‌ها در همان عمق کنار شما ظاهر می‌شوند و شکست باس، پاداش تیمی می‌دهد.</div>
+    <div class="squad-hint">
+      کوپ فقط در مود Roguelite کار می‌کند. میزبان (بازیکن اول اتاق) دنیا را اجرا می‌کند
+      و دکمه‌ی شروع را می‌زند؛ دشمن‌ها، باس و آیتم‌ها برای همه یکی هستند. اگر از پا بیفتید،
+      هم‌تیمی با ایستادن کنار شما احیایتان می‌کند.
+    </div>
   </div>
   <div class="controls-hint">
     <div class="ctrl-card"><b>حرکت / Move</b>W A S D یا کلیدهای جهت‌دار</div>
@@ -1081,9 +1100,11 @@
  *  NEON TANKS — full game implementation (single file)
  * =========================================================================== */
 
-/* Surface fatal errors on-screen — Telegram's WebView has no console, so a
- * crash would otherwise look like a silent black screen. */
+/* Surface fatal errors on-screen. Opt-in via ?debug=1 — players should not be
+ * shown stack traces, but on a phone there is no console to open either. */
+const DEBUG = (() => { try { return new URLSearchParams(location.search).has('debug'); } catch (e) { return false; } })();
 function showFatal(msg) {
+  if (!DEBUG) { try { console.error('[neon-tanks]', msg); } catch (_) {} return; }
   try {
     let el = document.getElementById('errOverlay');
     if (!el) {
@@ -1128,257 +1149,846 @@ function toast(msg, ms = 1800) {
   toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 
-/* ---------------------- Telegram Mini App integration ----------------------
- * Wraps window.Telegram.WebApp. Degrades gracefully when the game is opened
- * in a normal browser (tg === null) so it stays fully playable standalone. */
-const Tg = {
-  wa: null,          // Telegram.WebApp instance (or null in a plain browser)
-  user: null,        // { id, first_name, last_name, username, photo_url, ... }
-  initData: '',      // raw signed initData string — sent to server for auth
-  ready: false,
-  init() {
-    const wa = (window.Telegram && window.Telegram.WebApp) || null;
-    if (!wa || !wa.initDataUnsafe) { this.ready = false; return; }
-    this.wa = wa;
-    this.initData = wa.initData || '';
-    this.user = (wa.initDataUnsafe && wa.initDataUnsafe.user) || null;
-    try {
-      wa.ready();
-      wa.expand();
-      if (wa.disableVerticalSwipes) wa.disableVerticalSwipes();
-      if (wa.enableClosingConfirmation) wa.enableClosingConfirmation();
-      wa.setHeaderColor && wa.setHeaderColor('#04060c');
-      wa.setBackgroundColor && wa.setBackgroundColor('#04060c');
-    } catch (e) { /* older client — ignore unsupported calls */ }
-    this.ready = true;
-  },
-  // Display name for HUD / leaderboards; falls back to a guest label.
-  displayName() {
-    const u = this.user;
-    if (!u) return 'مهمان';
-    if (u.username) return '@' + u.username;
-    return [u.first_name, u.last_name].filter(Boolean).join(' ') || ('Player' + u.id);
-  },
-  photoUrl() { return (this.user && this.user.photo_url) || null; },
-  // Stable per-account id used to key saves & multiplayer identity.
-  accountId() { return this.user ? ('tg' + this.user.id) : null; },
-  // Haptic feedback — safe no-op off-platform.
+/* --------------------------- Platform integration -------------------------
+ * The game is a plain web page. This wraps the few browser APIs that behave
+ * differently on phones (vibration, fullscreen, orientation lock, the visual
+ * viewport shrinking) so every call site stays a one-liner. */
+const Platform = {
+  isTouch() { return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0); },
+  vpWidth() { const v = window.visualViewport; return Math.round((v && v.width) || window.innerWidth); },
+  vpHeight() { const v = window.visualViewport; return Math.round((v && v.height) || window.innerHeight); },
+  // Vibration stands in for haptics; silently absent on desktop and iOS.
   haptic(kind = 'light') {
+    if (!navigator.vibrate) return;
+    const pattern = kind === 'success' ? [12, 40, 18]
+      : kind === 'error' ? [30, 50, 30]
+      : kind === 'warning' ? [20, 40]
+      : kind === 'medium' ? 18
+      : kind === 'heavy' ? 28 : 10;
+    try { navigator.vibrate(pattern); } catch (e) {}
+  },
+  // Needs a user gesture. orientation.lock() only works once fullscreen is
+  // granted and is unsupported on iOS — the #rotateHint overlay covers that.
+  goFullscreenLandscape() {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    const lock = () => { try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (e) {} };
+    if (!req) { lock(); return; }
     try {
-      const h = this.wa && this.wa.HapticFeedback;
-      if (!h) return;
-      if (kind === 'success' || kind === 'error' || kind === 'warning') h.notificationOccurred(kind);
-      else h.impactOccurred(kind); // 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'
-    } catch (e) {}
-  },
-  // Read a start param (e.g. squad invite code passed via t.me/bot/app?startapp=CODE)
-  startParam() {
-    return (this.wa && this.wa.initDataUnsafe && this.wa.initDataUnsafe.start_param) || null;
-  },
-  isTouch() {
-    return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+      const p = req.call(el, { navigationUI: 'hide' });
+      if (p && p.then) p.then(lock).catch(lock); else lock();
+    } catch (e) { lock(); }
   },
 };
-Tg.init();
+
+/* --------------------------------- Profile --------------------------------
+ * Online identity: a nickname the player picks plus a stable random id kept in
+ * localStorage. No sign-up, no third-party account. */
+const PROFILE_KEY = 'neon_tanks_profile_v1';
+const Profile = {
+  id: '',
+  name: '',
+  load() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); } catch (e) {}
+    this.id = (saved && saved.id) || ('p' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4));
+    this.name = (saved && saved.name) || ('فرمانده ' + (1000 + Math.floor(Math.random() * 9000)));
+    if (!saved) this.save();
+    return this;
+  },
+  setName(raw) {
+    const name = String(raw || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+    if (!name) return false;
+    this.name = name;
+    this.save();
+    return true;
+  },
+  save() { try { localStorage.setItem(PROFILE_KEY, JSON.stringify({ id: this.id, name: this.name })); } catch (e) {} },
+};
+Profile.load();
+
+// Room code from a shared link: ?room=CODE
+function roomFromUrl() {
+  try {
+    const raw = new URLSearchParams(location.search).get('room') || '';
+    const code = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    return code.length >= 4 ? code : null;
+  } catch (e) { return null; }
+}
+
 
 /* --------------------------- Multiplayer (Net) ---------------------------
- * Thin WebSocket client for co-op squads. Fully optional: if there is no
- * server configured or the socket fails, Net stays in 'offline' state and the
- * game plays exactly as single-player. All squad UI degrades gracefully.
+ * Host-authoritative co-op (Roguelite only).
  *
- * Wire protocol (JSON per line):
- *   c->s  {t:'hello', initData, name, accountId}
- *   c->s  {t:'squad.create'}                         -> s->c {t:'squad', code, members}
- *   c->s  {t:'squad.join', code}                     -> s->c {t:'squad', code, members} | {t:'error', msg}
- *   c->s  {t:'squad.leave'}
- *   c->s  {t:'state', p:{x,y,hp,mx,ang,tang,depth,score}}   (throttled snapshot)
- *   c->s  {t:'event', kind, data}                    (kill / boss / revive pings)
- *   s->c  {t:'squad', code, members:[{id,name,leader}]}
- *   s->c  {t:'snap', players:{id:{x,y,hp,mx,ang,tang,depth,score,name}}}
- *   s->c  {t:'event', from, kind, data}
- *   s->c  {t:'peer.left', id} / {t:'peer.joined', id, name}
+ *   • One player is the HOST: their browser runs the whole simulation
+ *     (enemies, bullets, boss, pickups) exactly as in single player, and
+ *     broadcasts a world snapshot 15 times a second.
+ *   • Everyone else is a CLIENT: they send input 30 times a second, predict
+ *     their own tank locally, and render everything else from snapshots.
+ *   • The Worker/Durable Object in src/ never simulates anything — it is an
+ *     authorized relay (host -> all, client -> host) and nothing more.
+ *
+ * Wire protocol (JSON):
+ *   c->s  {t:'in', s:seq, mx,my,mg,am,f}        input          (client -> host)
+ *   c->s  {t:'hey', prof:{...}}                 identity/loadout
+ *   c->s  {t:'pick', id}                        relic chosen
+ *   c->s  {t:'act', key}                        ability pressed
+ *   h->s  {t:'S', ...}                          world snapshot (host -> all)
+ *   h->s  {t:'E', e:[...]}                      one-shot events
+ *   s->c  {t:'room'|'host'|'peer'|'err', ...}   room bookkeeping (server)
  */
+const NET_TICK_HZ = 15;         // host snapshots per second
+const NET_INPUT_HZ = 30;        // client input packets per second
+const NET_MAX_MEMBERS = 4;
+const RELIC_WAIT_MAX = 25;      // seconds before the squad moves on without you
+
+// Small palettes keep snapshots compact and self-describing.
+const NET_COLORS = ['#00f0ff', '#ffd23f', '#b6ff3a', '#ff3b3b', '#ff8c42', '#c77dff', '#ff3b6b', '#6effb0', '#ffffff', '#ff2bd6'];
+const netColorIdx = (c) => { const i = NET_COLORS.indexOf(c); return i < 0 ? 0 : i; };
+const netColor = (i) => NET_COLORS[i] || NET_COLORS[0];
+
+let _nidSeq = 0;
+const netId = (o) => o._nid || (o._nid = ++_nidSeq);
+const rnd0 = (v) => Math.round(v);
+const rnd2 = (v) => Math.round(v * 100) / 100;
+
 const Net = {
   ws: null,
-  state: 'offline',        // 'offline' | 'connecting' | 'online'
-  url: null,               // set via configure(); null => never attempts to connect
-  selfId: null,
-  squadCode: null,
-  isLeader: false,
-  members: [],             // [{id, name, leader}]
-  peers: {},               // id -> { x,y,hp,mx,ang,tang,depth,score,name, rx,ry, last }
-  lastSendAt: 0,
-  sendHz: 12,              // snapshot rate (throttled)
+  status: 'offline',        // offline | connecting | online
+  code: null,
+  pub: false,
+  selfId: Profile.id,
+  hostId: null,
+  members: [],              // [{id, name, host}]
+  ping: 0,
+  error: null,
+  _pingAt: 0,
+  _lastSnapSent: 0,
+  _lastInputSent: 0,
+  _inputSeq: 0,
+  _events: [],              // host: outgoing one-shot events for this tick
+  _picks: null,             // host: ids that already chose a relic
+  _relicWait: 0,
+  _want: null,              // last room we intended to be in (for reconnect)
+  _inRun: false,            // guest: a host-driven run is in progress
   _retry: 0,
-  _pending: [],            // queued messages while connecting
+  _snapAt: 0,
 
-  // Resolve server URL: explicit global, <meta>, or ?server= query param. No default.
-  resolveUrl() {
-    if (window.NEON_TANKS_SERVER) return window.NEON_TANKS_SERVER;
-    const m = document.querySelector('meta[name="mp-server"]');
-    if (m && m.content) return m.content;
-    try {
-      const q = new URLSearchParams(location.search).get('server');
-      if (q) return q;
-    } catch (e) {}
-    return null;
+  /* ------------------------------ plumbing ------------------------------ */
+  isOnline() { return this.status === 'online'; },
+  // Solo play counts as "host" so every authority check reads the same way.
+  isHost() { return !this.isOnline() || this.hostId === this.selfId; },
+  isClient() { return this.isOnline() && this.hostId !== this.selfId; },
+  inSquad() { return this.isOnline() && this.members.length > 1; },
+  memberCount() { return this.isOnline() ? this.members.length : 1; },
+
+  wsUrl(code, opts) {
+    let base = null;
+    try { base = new URLSearchParams(location.search).get('server'); } catch (e) {}
+    if (!base) base = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    const q = new URLSearchParams({ room: code, id: this.selfId, name: Profile.name });
+    if (opts && opts.create) q.set('create', '1');
+    if (opts && opts.pub) q.set('pub', '1');
+    return base + '?' + q.toString();
   },
 
-  configure() {
-    this.url = this.resolveUrl();
-    this.selfId = Tg.accountId() || ('guest' + Math.abs(hashStr(navigator.userAgent + location.href)) % 100000);
+  async api(path, init) {
+    const res = await fetch(path, init);
+    if (!res.ok) throw new Error('http ' + res.status);
+    return res.json();
   },
-  connect() {
-    if (!this.url) { this.state = 'offline'; return false; }
-    if (this.state === 'online' || this.state === 'connecting') return true;
-    this.state = 'connecting';
+
+  /* ------------------------------- joining ------------------------------ */
+  async createRoom(pub) {
     try {
-      const ws = new WebSocket(this.url);
-      this.ws = ws;
-      ws.onopen = () => {
-        this.state = 'online';
-        this._retry = 0;
-        this.send({ t: 'hello', initData: Tg.initData || '', name: Tg.displayName(), accountId: this.selfId });
-        const q = this._pending; this._pending = [];
-        for (const m of q) this.send(m);
-        // Auto-join a squad if we were launched from an invite deep-link.
-        const code = Tg.startParam();
-        if (code && !this.squadCode) this.joinSquad(code);
-      };
-      ws.onmessage = (ev) => { try { this.onMessage(JSON.parse(ev.data)); } catch (e) {} };
-      ws.onclose = () => { this.state = 'offline'; this.ws = null; this.scheduleReconnect(); };
-      ws.onerror = () => { try { ws.close(); } catch (e) {} };
-      return true;
-    } catch (e) { this.state = 'offline'; return false; }
+      const r = await this.api('/api/room' + (pub ? '?pub=1' : ''), { method: 'POST' });
+      this.connect(r.code, { create: true, pub: !!pub });
+    } catch (e) { toast('ساخت اتاق ناموفق بود'); }
   },
+
+  async quickPlay() {
+    try {
+      const r = await this.api('/api/quickplay');
+      toast(r.created ? 'اتاق عمومی ساخته شد — منتظر بازیکن‌ها' : 'به یک اتاق عمومی پیوستید');
+      this.connect(r.code, { create: true, pub: true });
+    } catch (e) { toast('بازی سریع در دسترس نیست'); }
+  },
+
+  joinRoom(code) {
+    const clean = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    if (clean.length < 4) { toast('کد اتاق نامعتبر است'); return; }
+    this.connect(clean, {});
+  },
+
+  connect(code, opts) {
+    if (this.ws) { try { this.ws.close(1000, 'switch'); } catch (e) {} this.ws = null; }
+    this._want = { code, create: !!(opts && opts.create), pub: !!(opts && opts.pub) };
+    this.status = 'connecting';
+    this.error = null;
+    refreshRoomPanel();
+    let ws;
+    try { ws = new WebSocket(this.wsUrl(code, opts)); }
+    catch (e) { this.status = 'offline'; refreshRoomPanel(); return; }
+    this.ws = ws;
+    ws.onopen = () => {
+      this.status = 'online';
+      this._retry = 0;
+      this.code = code;
+      this.sendProfile();
+      this.pingLoop();
+    };
+    ws.onmessage = (ev) => {
+      if (ev.data === 'o') { this.ping = Math.round(performance.now() - this._pingAt); return; }
+      let m = null;
+      try { m = JSON.parse(ev.data); } catch (e) { return; }
+      this.onMessage(m);
+    };
+    ws.onclose = (ev) => {
+      const wasOnline = this.status === 'online';
+      this.ws = null;
+      this.status = 'offline';
+      this.hostId = null;
+      this.members = [];
+      if (wasOnline) {
+        toast('ارتباط با اتاق قطع شد');
+        leaveCoop();
+        this.scheduleReconnect();
+      } else if (ev && ev.code === 1006) {
+        toast('اتصال برقرار نشد — اتاق پیدا نشد یا پر است');
+      }
+      refreshRoomPanel();
+    };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
+  },
+
   scheduleReconnect() {
-    if (!this.url || !this.squadCode) return;   // only auto-reconnect if we were in a squad
-    this._retry = Math.min(this._retry + 1, 6);
-    const delay = 500 * Math.pow(2, this._retry);   // 1s..32s backoff
-    setTimeout(() => { if (this.state === 'offline') this.connect(); }, delay);
+    if (!this._want) return;
+    this._retry = Math.min(this._retry + 1, 5);
+    const delay = 600 * Math.pow(2, this._retry - 1);
+    setTimeout(() => {
+      if (this.status === 'offline' && this._want) this.connect(this._want.code, { create: false });
+    }, delay);
   },
+
+  leave() {
+    this._want = null;
+    this.send({ t: 'bye' });
+    if (this.ws) { try { this.ws.close(1000, 'bye'); } catch (e) {} }
+    this.ws = null;
+    this.status = 'offline';
+    this.code = null;
+    this.hostId = null;
+    this.members = [];
+    leaveCoop();
+    refreshRoomPanel();
+  },
+
   send(msg) {
-    if (this.state !== 'online' || !this.ws) { if (this.state === 'connecting') this._pending.push(msg); return false; }
-    try { this.ws.send(JSON.stringify(msg)); return true; } catch (e) { return false; }
+    if (!this.ws || this.ws.readyState !== 1) return false;
+    try { this.ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); return true; }
+    catch (e) { return false; }
   },
-  // ---- Squad API (each ensures a connection first) ----
-  createSquad() {
-    if (!this.url) { toast('سرور چندنفره پیکربندی نشده'); return; }
-    if (this.connect()) this.send({ t: 'squad.create' });
+
+  pingLoop() {
+    clearInterval(this._pingTimer);
+    this._pingTimer = setInterval(() => {
+      if (!this.ws || this.ws.readyState !== 1) { clearInterval(this._pingTimer); return; }
+      this._pingAt = performance.now();
+      this.send('p');
+    }, 5000);
   },
-  joinSquad(code) {
-    if (!code) return;
-    if (!this.url) { toast('سرور چندنفره پیکربندی نشده'); return; }
-    if (this.connect()) this.send({ t: 'squad.join', code: String(code).toUpperCase().trim() });
+
+  // Everything the host needs to build this player's tank.
+  sendProfile() {
+    this.send({
+      t: 'hey',
+      prof: {
+        name: Profile.name,
+        hp: Meta.upgrades.hp | 0,
+        life: Meta.upgrades.life | 0,
+        speed: Meta.upgrades.speed | 0,
+        damage: Meta.upgrades.damage | 0,
+        gadgets: (Meta.ownedGadgets || []).slice(0, 12),
+      },
+    });
   },
-  leaveSquad() {
-    this.send({ t: 'squad.leave' });
-    this.squadCode = null; this.isLeader = false; this.members = []; this.peers = {};
-    refreshSquadHud();
-  },
-  // Build a t.me deep link the player can share to invite friends.
+
   inviteLink() {
-    if (!this.squadCode) return null;
-    const bot = window.NEON_TANKS_BOT || (document.querySelector('meta[name="mp-bot"]') || {}).content;
-    const app = window.NEON_TANKS_APP || (document.querySelector('meta[name="mp-app"]') || {}).content || 'play';
-    if (!bot) return null;
-    return `https://t.me/${bot}/${app}?startapp=${encodeURIComponent(this.squadCode)}`;
+    if (!this.code) return null;
+    return location.origin + location.pathname + '?room=' + encodeURIComponent(this.code);
   },
+
   share() {
     const link = this.inviteLink();
-    if (!link) { toast('ابتدا اسکواد بسازید'); return; }
-    const text = 'به اسکواد من در Neon Tanks بپیوند!';
-    if (Tg.wa && Tg.wa.openTelegramLink) {
-      Tg.wa.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
-    } else if (navigator.share) {
-      navigator.share({ title: 'Neon Tanks', text, url: link }).catch(() => {});
+    if (!link) { toast('ابتدا یک اتاق بسازید'); return; }
+    const text = 'به اسکواد من در NEON TANKS بپیوند!';
+    if (navigator.share) {
+      navigator.share({ title: 'NEON TANKS', text, url: link }).catch(() => {});
     } else {
-      try { navigator.clipboard.writeText(link); toast('لینک دعوت کپی شد'); } catch (e) { toast(link); }
+      try { navigator.clipboard.writeText(link); toast('لینک دعوت کپی شد'); }
+      catch (e) { toast(link, 4000); }
     }
-    Tg.haptic('light');
+    Platform.haptic('light');
   },
-  // ---- Inbound ----
+
+  /* ------------------------------- inbound ------------------------------ */
   onMessage(m) {
     switch (m.t) {
-      case 'squad':
-        this.squadCode = m.code;
+      case 'room': {
+        const wasHost = this.hostId === this.selfId;
+        this.code = m.code;
+        this.pub = !!m.pub;
         this.members = m.members || [];
-        this.isLeader = !!(this.members.find(x => x.id === this.selfId) || {}).leader;
-        refreshSquadHud();
-        toast('اسکواد: ' + m.code);
-        Tg.haptic('success');
-        break;
-      case 'peer.joined':
-        if (m.id !== this.selfId) toast((m.name || 'یک بازیکن') + ' به اسکواد پیوست');
-        break;
-      case 'peer.left':
-        delete this.peers[m.id];
-        break;
-      case 'snap': {
-        const now = performance.now();
-        const ps = m.players || {};
-        for (const id in ps) {
-          if (id === this.selfId) continue;
-          const s = ps[id];
-          const p = this.peers[id] || (this.peers[id] = { rx: s.x, ry: s.y });
-          Object.assign(p, s); p.last = now;
-          if (p.rx == null) { p.rx = s.x; p.ry = s.y; }
-        }
-        for (const id in this.peers) if (!ps[id]) delete this.peers[id];
+        this.hostId = m.host || null;
+        syncCoopRoster();
+        refreshRoomPanel();
+        if (!wasHost && this.hostId === this.selfId && this.members.length > 1) toast('شما میزبان هستید');
         break;
       }
-      case 'event':
-        this.onPeerEvent(m.from, m.kind, m.data || {});
+      case 'host': {
+        const becameHost = m.id === this.selfId;
+        this.hostId = m.id;
+        // The new host has no loadouts yet — everyone re-introduces themselves.
+        if (!becameHost) this.sendProfile();
+        onHostChanged(becameHost);
+        refreshRoomPanel();
         break;
-      case 'error':
-        toast(m.msg || 'خطای اسکواد');
-        Tg.haptic('error');
+      }
+      case 'peer': {
+        if (m.join) toast((m.name || 'یک بازیکن') + ' به اسکواد پیوست');
+        else toast((m.name || 'یک بازیکن') + ' اسکواد را ترک کرد');
+        break;
+      }
+      case 'hey':
+        if (this.isHost()) applyPeerProfile(m.from, m.prof || {});
+        break;
+      case 'in':
+        if (this.isHost()) applyPeerInput(m.from, m);
+        break;
+      case 'act':
+        if (this.isHost()) {
+          const t = tankById(m.from);
+          if (t) tryActivateAbility(String(m.key || ''), t);
+        }
+        break;
+      case 'pick':
+        if (this.isHost()) hostRegisterPick(m.from, m.id);
+        break;
+      case 'S':
+        if (this.isClient()) applySnapshot(m);
+        break;
+      case 'E':
+        if (this.isClient()) applyNetEvents(m.e || []);
+        break;
+      case 'err':
+        this.error = m.msg || null;
+        if (m.msg) toast(m.msg);
         break;
     }
   },
-  onPeerEvent(from, kind, data) {
-    const who = (this.peers[from] && this.peers[from].name) || 'هم‌تیمی';
-    if (kind === 'boss') {
-      // Squad incentive: everyone in the squad gets a cut when anyone downs a boss.
-      const cut = 8;
-      if (Game.mode === 'roguelite' && Game.state === 'battle') Rogue.aetherThisRun += cut;
-      else { Meta.aether += cut; saveMeta(); }
-      toast(`${who} یک باس را شکست داد! +${cut} Aether تیمی`);
-      Tg.haptic('success');
-    }
-    else if (kind === 'revive') toast(who + ' شما را احیا کرد');
-    else if (kind === 'depth') { /* teammate advanced — could sync */ }
+
+  /* ------------------------------ outbound ------------------------------ */
+  // Host: queue a one-shot event (explosion, revive, relic phase, run end...).
+  emit(kind, data) {
+    if (!this.isOnline() || !this.isHost()) return;
+    this._events.push([kind, data || {}]);
+    if (this._events.length > 60) this._events.splice(0, this._events.length - 60);
   },
-  // ---- Outbound helpers ----
-  sendState(force) {
-    if (this.state !== 'online' || !this.squadCode) return;
+  fx(x, y, color, scale) {
+    if (!this.isOnline() || !this.isHost()) return;
+    this._events.push(['fx', [rnd0(x), rnd0(y), netColorIdx(color), rnd2(scale || 1)]]);
+  },
+  // Muzzle flashes are frequent but tiny; they carry the shooting sound too.
+  shot(x, y, ang, color) {
+    if (!this.isOnline() || !this.isHost()) return;
+    this._events.push(['sh', [rnd0(x), rnd0(y), rnd2(ang), netColorIdx(color)]]);
+  },
+  sendAction(key) { this.send({ t: 'act', key }); },
+  sendPick(id) { this.send({ t: 'pick', id }); },
+
+  // Called once per rendered frame from frame().
+  tick(dt) {
+    if (!this.isOnline()) return;
     const now = performance.now();
-    if (!force && now - this.lastSendAt < 1000 / this.sendHz) return;
-    this.lastSendAt = now;
-    this.send({ t: 'state', p: {
-      x: Math.round(player.x), y: Math.round(player.y),
-      hp: Math.round(player.hp), mx: Math.round(player.maxHp),
-      ang: +player.angle.toFixed(2), tang: +player.turret.toFixed(2),
-      depth: Rogue.depth | 0, score: Game.score | 0,
-    }});
-  },
-  event(kind, data) { this.send({ t: 'event', kind, data: data || {} }); },
-  inSquad() { return this.state === 'online' && !!this.squadCode && this.members.length > 1; },
-  // Smoothly interpolate remote peer positions toward their latest snapshot.
-  interpolate(dt) {
-    const a = 1 - Math.pow(0.001, dt);   // exponential smoothing
-    for (const id in this.peers) {
-      const p = this.peers[id];
-      if (p.x == null) continue;
-      p.rx += (p.x - p.rx) * a;
-      p.ry += (p.y - p.ry) * a;
+    if (this.isHost()) {
+      if (Game.state === 'battle' || Game.state === 'bossintro' || Game.state === 'relicchoice' || Game.state === 'roguedeath' || Game.state === 'paused') {
+        if (now - this._lastSnapSent >= 1000 / NET_TICK_HZ) {
+          this._lastSnapSent = now;
+          this.send(buildSnapshot());
+        }
+      }
+      if (this._events.length) { this.send({ t: 'E', e: this._events }); this._events = []; }
+      hostRelicGate(dt);
+    } else {
+      if (now - this._lastInputSent >= 1000 / NET_INPUT_HZ) {
+        this._lastInputSent = now;
+        const i = player.input;
+        this.send({
+          t: 'in', s: ++this._inputSeq,
+          mx: rnd2(i.mx), my: rnd2(i.my), mg: rnd2(i.mag),
+          am: rnd2(i.aim), f: (i.fire ? 1 : 0) | (i.weaponFire ? 2 : 0),
+        });
+      }
+      interpolateWorld(dt);
     }
   },
 };
 
-// Small string hash for guest ids (no crypto needed).
-function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; } return h; }
-Net.configure();
+/* ===========================================================================
+   CO-OP GLUE — roster, snapshots, prediction, events
+   =========================================================================== */
+
+// Keep `players` in sync with the room roster (host side; clients build their
+// list from snapshots instead).
+function syncCoopRoster() {
+  if (!Net.isOnline()) return;
+  if (Net.isClient()) return;
+  const ids = new Set(Net.members.map(m => m.id));
+  // Add tanks for new members
+  for (const m of Net.members) {
+    if (m.id === Net.selfId) { player.netId = Net.selfId; player.name = Profile.name; continue; }
+    if (tankById(m.id)) continue;
+    const t = makeTank(m.id, m.name);
+    if (Game.mode === 'roguelite' && Game.state === 'battle') { t.x = W / 2 + rand(-120, 120); t.y = H / 2 + rand(-90, 90); }
+    equipGadgets(t);
+    players.push(t);
+  }
+  // Drop tanks whose player left
+  for (let i = players.length - 1; i >= 0; i--) {
+    const t = players[i];
+    if (t.isLocal) continue;
+    if (!ids.has(t.netId)) players.splice(i, 1);
+  }
+  refreshSquadStrip();
+}
+
+// Host: build a teammate's tank from their meta upgrades + owned gadgets.
+function applyPeerProfile(id, prof) {
+  const t = tankById(id);
+  if (!t || t.isLocal) return;
+  if (prof.name) t.name = String(prof.name).slice(0, 16);
+  t.maxHp = 100 + (prof.hp | 0) * 10;
+  t.hp = Math.min(t.hp || t.maxHp, t.maxHp);
+  t.maxLives = 1 + (prof.life | 0);
+  t.lives = Math.max(1, t.maxLives);
+  t.speedMult = 1 + (prof.speed | 0) * 0.05;
+  t.dmgMult = 1 + (prof.damage | 0) * 0.05;
+  t.speed = 170 * t.speedMult;
+  t.weapon = WEAPONS.find(w => w.id === (Game.selectedWeapon || 'cannon')) || WEAPONS[0];
+  t.fireRate = t.weapon.fireRate;
+  t.owned = new Set(Array.isArray(prof.gadgets) ? prof.gadgets : []);
+  equipGadgets(t);
+  refreshSquadStrip();
+}
+
+const INPUT_STALE_MS = 1500;
+
+// Host: a teammate whose packets stopped arriving coasts to a halt instead of
+// driving into a wall forever.
+function dropStaleInputs() {
+  if (!Net.isOnline() || !Net.isHost()) return;
+  const now = performance.now();
+  for (const t of players) {
+    if (t.isLocal) continue;
+    if (t.lastInputAt && now - t.lastInputAt < INPUT_STALE_MS) continue;
+    t.input.mx = 0; t.input.my = 0; t.input.mag = 0;
+    t.input.fire = false; t.input.weaponFire = false;
+  }
+}
+
+// Host: apply a teammate's input packet to their tank.
+function applyPeerInput(id, m) {
+  const t = tankById(id);
+  if (!t) return;
+  const i = t.input;
+  i.mx = +m.mx || 0;
+  i.my = +m.my || 0;
+  i.mag = clamp(+m.mg || 0, 0, 1);
+  i.aim = +m.am || 0;
+  i.fire = !!(m.f & 1);
+  i.weaponFire = !!(m.f & 2);
+  t.lastInputAt = performance.now();
+}
+
+/* ------------------------------- snapshots ------------------------------ */
+function buildSnapshot() {
+  const snap = {
+    t: 'S',
+    ts: Math.round(performance.now()),
+    tanks: players.map(t => ({
+      i: t.netId, x: rnd0(t.x), y: rnd0(t.y), a: rnd2(t.angle), u: rnd2(t.turret),
+      h: rnd0(t.hp), m: rnd0(t.maxHp), l: t.lives | 0,
+      f: (t.alive ? 1 : 0) | (t.downed ? 2 : 0) | (t.invuln > 0 ? 4 : 0),
+      r: rnd2(t.reviveT || 0),
+      // Ability timers, so a guest's own cooldown HUD reflects the simulation.
+      cd: t.abilityCd, ch: t.abilityCharges, gc: rnd2(t.gadgetCooldown || 0),
+    })),
+    en: enemies.map(e => ({
+      i: netId(e), t: e.type, x: rnd0(e.x), y: rnd0(e.y), a: rnd2(e.angle), u: rnd2(e.turret),
+      h: rnd0(e.hp), m: rnd0(e.maxHp), e: e.isElite ? 1 : 0, b: e.miniType || 0, s: rnd2(e.spawnAnim || 0),
+    })),
+    dr: drones.map(d => ({
+      i: netId(d), t: d.type, x: rnd0(d.x), y: rnd0(d.y), a: rnd2(d.angle),
+      st: d.state, s: rnd2(d.spawnAnim || 0), p: rnd2(d.spin || 0),
+    })),
+    // Bullets are purely ballistic, so clients dead-reckon them between
+    // snapshots — no per-bullet ids or removal messages needed.
+    bu: bullets.map(b => [rnd0(b.x), rnd0(b.y), rnd0(b.vx), rnd0(b.vy), b.r, netColorIdx(b.color), b.from === 'player' ? 0 : (b.from === 'gadget' ? 2 : 1)]),
+    pk: pickups.map(pk => ({ i: netId(pk), t: pk.type, x: rnd0(pk.x), y: rnd0(pk.y) })),
+    hz: hazards.map(h => [rnd0(h.x), rnd0(h.y), rnd0(h.r), rnd2(h.warn), rnd2(h.maxWarn), h.done ? 1 : 0, netColorIdx(h.color)]),
+    bo: null,
+    flow: {
+      // `phase`/`depth` are also read server-side by GameRoom.notePhase to rank
+      // rooms for quick play, so keep those two names in sync with src/room.js.
+      phase: Game.state, depth: Rogue.depth | 0,
+      st: Game.state, md: Game.mode, d: Rogue.depth | 0, sc: Game.score | 0,
+      ae: Rogue.aetherThisRun | 0, er: Game.enemiesRemaining | 0,
+      ba: Game.bossActive ? 1 : 0, bt: Rogue.bossType || null,
+    },
+  };
+  const b = Rogue.bossRef;
+  if (b) {
+    snap.bo = {
+      t: b.type, x: rnd0(b.x), y: rnd0(b.y), a: rnd2(b.angle), u: rnd2(b.turret),
+      h: rnd0(b.hp), m: rnd0(b.maxHp), p: b.phase | 0, st: b.state,
+      tg: rnd2(b.telegraph || 0), s: rnd2(b.spawnAnim || 0), ca: rnd2(b.chargeAng || 0),
+    };
+  }
+  return snap;
+}
+
+// Client: rebuild the world from the host's snapshot. Entities keep their
+// rendered position and ease toward the authoritative one (interpolateWorld).
+function applySnapshot(m) {
+  Net._snapAt = performance.now();
+
+  // --- tanks -------------------------------------------------------------
+  const seen = new Set();
+  for (const row of m.tanks || []) {
+    seen.add(row.i);
+    let t = tankById(row.i);
+    if (!t) {
+      if (row.i === Net.selfId) { t = player; t.netId = Net.selfId; }
+      else { t = makeTank(row.i, (Net.members.find(x => x.id === row.i) || {}).name); players.push(t); }
+    }
+    t.hp = row.h; t.maxHp = row.m;
+    if (t.lives !== row.l) { t.lives = row.l; if (t.isLocal) updateLifeBelt(); }
+    t.maxLives = Math.max(t.maxLives || 1, row.l);
+    t.alive = !!(row.f & 1);
+    t.downed = !!(row.f & 2);
+    t.invuln = (row.f & 4) ? Math.max(t.invuln, 0.1) : 0;
+    t.reviveT = row.r || 0;
+    if (row.cd) t.abilityCd = row.cd;
+    if (row.ch) t.abilityCharges = row.ch;
+    t.gadgetCooldown = row.gc || 0;
+    if (t.isLocal) {
+      // Reconciliation: trust our own prediction unless it drifted too far.
+      const err = Math.hypot(row.x - t.x, row.y - t.y);
+      if (err > 90) { t.x = row.x; t.y = row.y; t.vx = 0; t.vy = 0; }
+      else if (err > 4) { t.x += (row.x - t.x) * 0.25; t.y += (row.y - t.y) * 0.25; }
+    } else {
+      t.tx = row.x; t.ty = row.y; t.ta = row.a; t.tu = row.u;
+      if (t.x === 0 && t.y === 0) { t.x = row.x; t.y = row.y; }
+    }
+  }
+  let rosterChanged = false;
+  for (let i = players.length - 1; i >= 0; i--) {
+    if (!players[i].isLocal && !seen.has(players[i].netId)) { players.splice(i, 1); rosterChanged = true; }
+  }
+  if (rosterChanged || players.length !== (m.tanks || []).length) refreshSquadStrip();
+
+  // --- enemies -----------------------------------------------------------
+  const byId = new Map(enemies.map(e => [e._nid, e]));
+  const next = [];
+  for (const row of m.en || []) {
+    let e = byId.get(row.i);
+    if (!e) e = makeNetEnemy(row);
+    e.hp = row.h; e.maxHp = row.m;
+    e.tx = row.x; e.ty = row.y; e.ta = row.a; e.tu = row.u;
+    e.spawnAnim = row.s;
+    next.push(e);
+  }
+  // Anything that vanished died: the host also sends an fx event for the boom.
+  enemies = next;
+
+  // --- drones ------------------------------------------------------------
+  const dById = new Map(drones.map(d => [d._nid, d]));
+  const dnext = [];
+  for (const row of m.dr || []) {
+    let d = dById.get(row.i);
+    if (!d) {
+      const def = DRONE_TYPES[row.t] || DRONE_TYPES.stinger;
+      d = { _nid: row.i, type: row.t, x: row.x, y: row.y, r: def.r, color: def.color, accent: def.accent, explosion: def.explosion, spin: 0, angle: row.a, state: row.st, spawnAnim: row.s, vx: 0, vy: 0 };
+    }
+    d.tx = row.x; d.ty = row.y; d.angle = row.a; d.state = row.st; d.spawnAnim = row.s; d.spin = row.p;
+    dnext.push(d);
+  }
+  drones = dnext;
+
+  // --- bullets (dead reckoned locally) ------------------------------------
+  bullets = (m.bu || []).map(row => ({
+    x: row[0], y: row[1], vx: row[2], vy: row[3], r: row[4], color: netColor(row[5]),
+    from: row[6] === 0 ? 'player' : (row[6] === 2 ? 'gadget' : 'enemy'), life: 2, age: 0, dmg: 0,
+  }));
+
+  // --- pickups / hazards --------------------------------------------------
+  const pById = new Map(pickups.map(pk => [pk._nid, pk]));
+  pickups = (m.pk || []).map(row => {
+    const old = pById.get(row.i);
+    if (old) { old.x = row.x; old.y = row.y; return old; }
+    return { _nid: row.i, type: row.t, x: row.x, y: row.y, r: 14, age: 0, bob: Math.random() * TAU };
+  });
+  hazards = (m.hz || []).map(row => ({
+    x: row[0], y: row[1], r: row[2], warn: row[3], maxWarn: row[4],
+    done: !!row[5], color: netColor(row[6]), flash: row[5] ? 0.3 : 0, dmg: 0,
+  }));
+
+  // --- boss ---------------------------------------------------------------
+  if (m.bo) {
+    const def = BOSSES[m.bo.t];
+    let b = Rogue.bossRef;
+    if (!b || b.type !== m.bo.t) {
+      b = Rogue.bossRef = {
+        type: m.bo.t, r: def.r, color: def.color, accent: def.accent, bodyColor: def.bodyColor,
+        name: def.name, x: m.bo.x, y: m.bo.y, treadPhase: 0, vx: 0, vy: 0,
+      };
+    }
+    b.tx = m.bo.x; b.ty = m.bo.y; b.angle = m.bo.a; b.turret = m.bo.u;
+    b.hp = m.bo.h; b.maxHp = m.bo.m; b.phase = m.bo.p; b.state = m.bo.st;
+    b.telegraph = m.bo.tg; b.spawnAnim = m.bo.s; b.chargeAng = m.bo.ca;
+  } else {
+    Rogue.bossRef = null;
+  }
+
+  applyNetFlow(m.flow || {});
+}
+
+function makeNetEnemy(row) {
+  const def = ENEMY_TYPES[row.t] || ENEMY_TYPES.light;
+  const e = {
+    _nid: row.i, type: row.t, x: row.x, y: row.y, tx: row.x, ty: row.y,
+    angle: row.a, turret: row.u, ta: row.a, tu: row.u,
+    hp: row.h, maxHp: row.m, r: def.r, color: def.color, accent: def.accent,
+    isElite: !!row.e, spawnAnim: row.s, treadPhase: 0, vx: 0, vy: 0,
+  };
+  if (row.b) {
+    const mb = MINIBOSS_TYPES[row.b];
+    if (mb) {
+      e.isMiniBoss = true; e.miniType = row.b; e.name = mb.name; e.subtitle = mb.subtitle;
+      e.r = mb.r; e.color = mb.color; e.accent = mb.accent;
+    }
+  }
+  return e;
+}
+
+// Client: ease every remote entity toward its snapshot position, and keep
+// ballistic bullets moving between snapshots.
+function interpolateWorld(dt) {
+  const k = 1 - Math.pow(0.0001, dt);     // ~fast exponential catch-up
+  const ease = (o) => {
+    if (o.tx == null) return;
+    o.x += (o.tx - o.x) * k;
+    o.y += (o.ty - o.y) * k;
+    if (o.ta != null) o.angle = angleLerp(o.angle, o.ta, k);
+    if (o.tu != null) o.turret = angleLerp(o.turret, o.tu, k);
+  };
+  for (const t of players) if (!t.isLocal) ease(t);
+  for (const e of enemies) ease(e);
+  for (const d of drones) ease(d);
+  if (Rogue.bossRef) ease(Rogue.bossRef);
+  for (const b of bullets) { b.x += b.vx * dt; b.y += b.vy * dt; }
+  for (const h of hazards) if (!h.done) h.warn = Math.max(0, h.warn - dt);
+  for (const pk of pickups) { pk.age += dt; pk.bob += dt * 3; }
+}
+
+/* --------------------------------- events -------------------------------- */
+function applyNetEvents(list) {
+  for (const [kind, data] of list) {
+    if (kind === 'sh') {
+      const [x, y, ang, ci] = data;
+      const color = netColor(ci);
+      spawnMuzzle(x, y, ang, color);
+      // Player-side muzzles are cyan/green; anything else is incoming fire.
+      if (color === '#00f0ff' || color === '#b6ff3a' || color === '#6effb0') Audio.shoot();
+      else Audio.enemyShoot();
+    } else if (kind === 'fx') {
+      const [x, y, ci, scale] = data;
+      spawnExplosion(x, y, netColor(ci), scale);   // already shakes and plays audio
+    } else if (kind === 'down') {
+      const t = tankById(data.id);
+      if (t) { t.downed = true; if (t.isLocal) { toast('از پا افتادی — منتظر هم‌تیمی بمان'); Platform.haptic('error'); } else toast(t.name + ' از پا افتاد'); }
+    } else if (kind === 'revive') {
+      const t = tankById(data.id);
+      if (t) { t.downed = false; t.reviveT = 0; if (t.isLocal) { toast('احیا شدی!'); Platform.haptic('success'); } }
+      Audio.pickup();
+    } else if (kind === 'mods') {
+      const t = tankById(data.id);
+      if (t) {
+        t.modules = data.m || [];
+        if (t.isLocal) { Rogue.modules = t.modules; refreshModuleTray(); }
+      }
+    } else if (kind === 'relic') {
+      openRelicChoice(!!data.boss);
+    } else if (kind === 'depth') {
+      toast('عمق ' + data.d);
+    } else if (kind === 'boss') {
+      Audio.win();
+      toast('باس نابود شد!');
+    } else if (kind === 'runEnd') {
+      applyNetRunEnd(data);
+    } else if (kind === 'say') {
+      toast(data.msg || '', 2200);
+    }
+  }
+}
+
+// Client: the host says the run is over — bank OUR aether and show the screen.
+function applyNetRunEnd(data) {
+  Net._inRun = false;
+  const mine = (data.stats && data.stats[Net.selfId]) || {};
+  const gained = mine.aether | 0;
+  Meta.aether += gained;
+  Meta.bestDepth = Math.max(Meta.bestDepth, data.depth | 0);
+  Meta.bestScore = Math.max(Meta.bestScore, data.score | 0);
+  Meta.bestKills = Math.max(Meta.bestKills, data.kills | 0);
+  Meta.bossesKilled += data.bosses | 0;
+  Meta.runsCompleted += 1;
+  const credits = Math.floor((data.score | 0) * 0.10);
+  Meta.credits += credits;
+  saveMeta();
+  Game.state = 'roguedeath';
+  $('hud').classList.remove('active');
+  $('rsDepth').textContent = data.depth | 0;
+  $('rsScore').textContent = data.score | 0;
+  $('rsKills').textContent = data.kills | 0;
+  $('rsAether').textContent = gained;
+  $('rogueDeathSub').textContent = 'اسکواد از پا افتاد';
+  showScreen('rogueDeath');
+  Audio.lose();
+}
+
+// A guest joins somebody else's run, so it must start from a clean slate
+// rather than inheriting relics and stats from whatever it played last.
+function resetGuestRunState() {
+  player.modules = [];
+  Rogue.modules = player.modules;
+  player.scoreMult = 1;
+  player.aetherMult = 1;
+  player.usedSecondWind = false;
+  player.downed = false;
+  player.reviveT = 0;
+  player.alive = true;
+  Rogue.aetherThisRun = 0;
+  Rogue.runStats = { kills: 0, bossesKilled: 0, score: 0, maxDepth: 0, miniBossesKilled: 0 };
+  equipGadgets(player);
+  refreshModuleTray();
+}
+
+// Client: adopt the host's flow state (depth, score, which screen is showing).
+function applyNetFlow(f) {
+  if (f.md) Game.mode = f.md;
+  // A run is live while the host is in one of the in-run states. Entering one
+  // from outside is a guest's cue to start from a clean slate.
+  const live = f.st === 'battle' || f.st === 'bossintro' || f.st === 'relicchoice' || f.st === 'paused';
+  if (live && !Net._inRun) { Net._inRun = true; resetGuestRunState(); }
+  else if (!live) Net._inRun = false;
+  Rogue.depth = f.d | 0;
+  Game.score = f.sc | 0;
+  Rogue.aetherThisRun = f.ae | 0;
+  Game.enemiesRemaining = f.er | 0;
+  Game.bossActive = !!f.ba;
+  Rogue.bossType = f.bt || null;
+  Rogue.runStats.maxDepth = Math.max(Rogue.runStats.maxDepth, Rogue.depth);
+  if (!f.st || f.st === Game.state) return;
+  // Relic and death screens are opened by their own events (they need payload).
+  if (f.st === 'relicchoice' || f.st === 'roguedeath') return;
+  const wasPaused = Game.state === 'paused';
+  Game.state = f.st;
+  if (f.st === 'paused') { $('pauseOverlay').classList.add('active'); return; }
+  if (wasPaused) $('pauseOverlay').classList.remove('active');
+  if (f.st === 'battle') {
+    showScreen(null);
+    showHUDForMode();
+    refreshGadgetHud();
+    refreshTouchButtons();
+    updateLifeBelt();
+    refreshSquadStrip();
+  } else if (f.st === 'bossintro') {
+    const b = BOSSES[Rogue.bossType];
+    if (b) {
+      $('bossIntroName').textContent = b.name;
+      $('bossIntroSubtitle').textContent = b.subtitle + ' — عمق ' + Rogue.depth;
+      showScreen('bossIntro');
+      Audio.lose();
+    }
+  }
+}
+
+/* ------------------------------ relic gating ----------------------------- */
+// Host: hold the squad at the relic screen until everyone has chosen (or the
+// timeout runs out) so nobody drops into the next depth alone.
+function hostRelicGate(dt) {
+  if (!Net.isOnline() || !Net._picks) return;
+  Net._relicWait += dt;
+  const needed = Net.members.length;
+  if (Net._picks.size >= needed || Net._relicWait > RELIC_WAIT_MAX) {
+    Net._picks = null;
+    Net._relicWait = 0;
+    closeRelicChoiceAndContinue();
+  }
+}
+
+function hostRegisterPick(id, moduleId) {
+  const t = tankById(id);
+  if (t && moduleId && MODULES_BY_ID[moduleId]) {
+    applyModule(moduleId, t);
+    Net.emit('mods', { id, m: t.modules.slice() });
+  }
+  if (Net._picks) {
+    Net._picks.add(id);
+    const waiting = Net.members.length - Net._picks.size;
+    if (waiting > 0) Net.emit('say', { msg: 'منتظر ' + waiting + ' هم‌تیمی…' });
+  }
+}
+
+/* --------------------------- host / room changes -------------------------- */
+function onHostChanged(becameHost) {
+  syncCoopRoster();
+  if (becameHost) {
+    toast('میزبان قبلی خارج شد — شما میزبان شدید، عمق از نو شروع می‌شود', 3200);
+    // The world state is not transferred; restart the current depth cleanly.
+    if (Game.mode === 'roguelite' && (Game.state === 'battle' || Game.state === 'relicchoice' || Game.state === 'bossintro')) {
+      Net._picks = null;
+      Rogue.depth = Math.max(0, Rogue.depth - 1);
+      enterNextRogueDepth();
+    }
+  }
+}
+
+// Someone left the room (or we did): fall back to a solo world.
+function leaveCoop() {
+  players = [player];
+  player.netId = Net.selfId;
+  Net._picks = null;
+  Net._relicWait = 0;
+  refreshSquadStrip();
+  // Nobody is left to revive us, so a downed player either gets back up (if
+  // they still had lives) or the run ends — otherwise the battle would hang.
+  if (player.downed) {
+    player.downed = false;
+    player.reviveT = 0;
+    if (player.lives > 0) {
+      player.alive = true;
+      player.hp = Math.round(player.maxHp * 0.5);
+      player.invuln = 2.5;
+      player.x = W / 2; player.y = H / 2;
+      player.vx = 0; player.vy = 0;
+      updateLifeBelt();
+    } else if (Game.state === 'battle') {
+      scheduleRunOver();
+    }
+  }
+}
 
 
 
@@ -1435,39 +2045,57 @@ const Audio = {
 };
 
 /* ------------------------------ Game canvas ------------------------------ */
+/* The arena is a FIXED logical rectangle (WORLD_W x WORLD_H), not the viewport.
+ * That is a hard requirement for co-op: every player must simulate and see the
+ * same battlefield regardless of screen size or orientation. The canvas is
+ * letterboxed — View holds the screen size plus the scale/offset that maps
+ * world space to device pixels; ctx is pre-transformed so all drawing code
+ * keeps working in world units. Screen-space UI (touch pads) uses View.sw/sh
+ * and resets the transform first. */
+const WORLD_W = 1600, WORLD_H = 900;
 const canvas = $('game');
 const ctx = canvas.getContext('2d');
-let W = 0, H = 0, DPR = 1;
+let W = WORLD_W, H = WORLD_H, DPR = 1;
+const View = { sw: WORLD_W, sh: WORLD_H, scale: 1, offX: 0, offY: 0 };
+
+// Screen (CSS px relative to the canvas element) -> world coordinates.
+function toWorld(sx, sy) {
+  return { x: (sx - View.offX) / View.scale, y: (sy - View.offY) / View.scale };
+}
+
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
-  // Telegram exposes a stable height that excludes its own chrome; prefer it.
-  const vpH = (Tg.wa && Tg.wa.viewportStableHeight) || window.innerHeight;
-  const vpW = window.innerWidth;
-  const touch = Tg.isTouch() || vpW < 820;
-  if (touch) {
-    // Mobile / Mini App: fill the whole viewport, no desktop framing.
-    W = vpW;
-    H = vpH;
-  } else {
-    const pad = 24;
-    W = Math.min(vpW - pad * 2, 1280);
-    H = Math.min(vpH - pad * 2, 760);
-  }
-  canvas.style.width = W + 'px';
-  canvas.style.height = H + 'px';
-  canvas.width = Math.floor(W * DPR);
-  canvas.height = Math.floor(H * DPR);
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  // Once the phone is actually in landscape, ask Telegram to keep it there.
-  if (touch && vpW > vpH && !resize._locked && Tg.wa && Tg.wa.lockOrientation) {
-    resize._locked = true;
-    try { Tg.wa.lockOrientation(); } catch (e) {}
-  }
+  const vpW = Platform.vpWidth();
+  const vpH = Platform.vpHeight();
+  const touch = Platform.isTouch() || vpW < 820;
+  const pad = touch ? 0 : 16;
+  const sw = Math.max(240, vpW - pad * 2);
+  const sh = Math.max(180, vpH - pad * 2);
+
+  View.sw = sw; View.sh = sh;
+  View.scale = Math.min(sw / WORLD_W, sh / WORLD_H);
+  View.offX = Math.round((sw - WORLD_W * View.scale) / 2);
+  View.offY = Math.round((sh - WORLD_H * View.scale) / 2);
+
+  canvas.style.width = sw + 'px';
+  canvas.style.height = sh + 'px';
+  canvas.width = Math.floor(sw * DPR);
+  canvas.height = Math.floor(sh * DPR);
+  applyWorldTransform();
   buildStaticLayers();
 }
-// Telegram fires this when its viewport changes (keyboard, expand animation).
-if (Tg.wa && Tg.wa.onEvent) {
-  Tg.wa.onEvent('viewportChanged', () => { resize(); initStars(); });
+
+// World-space transform: everything the game draws is in world units. The
+// camera shake lives here rather than in a save()/translate() pair, because
+// setTransform() replaces the matrix and would otherwise discard it.
+let shakeX = 0, shakeY = 0;
+function applyWorldTransform() {
+  const k = View.scale * DPR;
+  ctx.setTransform(k, 0, 0, k, (View.offX + shakeX) * DPR, (View.offY + shakeY) * DPR);
+}
+// Screen-space transform: for HUD/overlay drawing measured in CSS pixels.
+function applyScreenTransform() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
 
 /* --------------- Static layer caches (rebuilt only on resize) ---------------
@@ -1477,11 +2105,14 @@ if (Tg.wa && Tg.wa.onEvent) {
  * a single drawImage call. */
 let bgLayer = null, vignetteLayer = null, menuVignetteLayer = null, dangerVignetteLayer = null;
 function makeLayer(draw) {
+  // Rendered at the world's on-screen pixel size so the cached bitmap matches
+  // what drawImage() will scale it to, then drawn back in world units.
+  const k = Math.max(0.25, View.scale * DPR);
   const cv = document.createElement('canvas');
-  cv.width = Math.max(1, Math.floor(W * DPR));
-  cv.height = Math.max(1, Math.floor(H * DPR));
+  cv.width = Math.max(1, Math.floor(WORLD_W * k));
+  cv.height = Math.max(1, Math.floor(WORLD_H * k));
   const c = cv.getContext('2d');
-  c.setTransform(DPR, 0, 0, DPR, 0, 0);
+  c.setTransform(k, 0, 0, k, 0, 0);
   draw(c);
   return cv;
 }
@@ -1523,12 +2154,13 @@ function buildStaticLayers() {
   });
 }
 
-window.addEventListener('resize', () => { resize(); initStars(); });
+const relayout = () => { resize(); initStars(); };
+window.addEventListener('resize', relayout);
+window.addEventListener('orientationchange', () => setTimeout(relayout, 120));
+// Mobile browser chrome (URL bar, on-screen keyboard) resizes the visual
+// viewport without firing window.resize.
+if (window.visualViewport) window.visualViewport.addEventListener('resize', relayout);
 resize();
-// Telegram's WebView reports a tiny/zero viewport for the first moments while
-// the expand animation runs; retry a few times so the canvas never stays 0-sized.
-setTimeout(() => { resize(); initStars(); }, 350);
-setTimeout(() => { resize(); initStars(); }, 1200);
 
 /* ------------------------------ Input state ------------------------------ */
 const keys = Object.create(null);
@@ -1553,8 +2185,9 @@ window.addEventListener('keyup', (e) => {
 });
 canvas.addEventListener('mousemove', (e) => {
   const r = canvas.getBoundingClientRect();
-  mouse.x = (e.clientX - r.left);
-  mouse.y = (e.clientY - r.top);
+  const p = toWorld(e.clientX - r.left, e.clientY - r.top);
+  mouse.x = p.x;
+  mouse.y = p.y;
 });
 canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0) { mouse.down = true; Audio.ensure(); }
@@ -1589,8 +2222,8 @@ const Touch = {
   // A touch landing near a pad snaps the stick base to the pad center so the
   // pads behave like real designed buttons; touches elsewhere in the same
   // half still spawn a floating stick.
-  movePad() { return { x: W - 118, y: H - 112 }; },
-  aimPad()  { return { x: 118, y: H - 112 }; },
+  movePad() { return { x: View.sw - 118, y: View.sh - 112 }; },
+  aimPad()  { return { x: 118, y: View.sh - 112 }; },
   reset() {
     this.moveX = this.moveY = this.moveMag = 0;
     this.aimX = this.aimY = this.aimMag = 0;
@@ -1607,7 +2240,7 @@ const Touch = {
   },
 };
 
-if (Tg.isTouch()) {
+if (Platform.isTouch()) {
   Touch.enabled = true;
   document.body.classList.add('touch');
   // Swap the desktop control hints on the menu for touch equivalents.
@@ -1626,13 +2259,12 @@ if (Tg.isTouch()) {
     // First battle touch = the user gesture we need for fullscreen/orientation.
     if (Game.state === 'battle' && !Touch._fsTried) {
       Touch._fsTried = true;
-      try { if (Tg.wa && Tg.wa.requestFullscreen) Tg.wa.requestFullscreen(); } catch (err) {}
-      try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (err) {}
+      Platform.goFullscreenLandscape();
     }
     for (const t of e.changedTouches) {
       const p = rectXY(t);
-      if (Game.state !== 'battle') { mouse.x = p.x; mouse.y = p.y; mouse.down = true; continue; }
-      const rightHalf = p.x >= W * 0.5;
+      if (Game.state !== 'battle') { const w = toWorld(p.x, p.y); mouse.x = w.x; mouse.y = w.y; mouse.down = true; continue; }
+      const rightHalf = p.x >= View.sw * 0.5;
       if (rightHalf && Touch.move.id === null) {
         const pad = Touch.movePad();
         const snap = Math.hypot(p.x - pad.x, p.y - pad.y) < Touch.R * 1.7;
@@ -1657,7 +2289,7 @@ if (Tg.isTouch()) {
     e.preventDefault();
     for (const t of e.changedTouches) {
       const p = rectXY(t);
-      if (Game.state !== 'battle') { mouse.x = p.x; mouse.y = p.y; continue; }
+      if (Game.state !== 'battle') { const w = toWorld(p.x, p.y); mouse.x = w.x; mouse.y = w.y; continue; }
       if (t.identifier === Touch.move.id) {
         const r = Touch._update(Touch.move, p.x, p.y);
         Touch.moveX = r.nx * r.mag; Touch.moveY = r.ny * r.mag; Touch.moveMag = r.mag;
@@ -1716,6 +2348,64 @@ let stars = [];       // twinkling background stars
 let shockwaves = [];  // expanding neon rings from explosions
 let hazards = [];     // telegraphed ground AoE (Warden mortars): warn then detonate
 let shake = 0;
+
+/* ------------------------------ Player tanks ------------------------------
+ * `player` above is always the LOCAL tank (so HUD, radar and menu code keep
+ * working untouched); `players` holds every tank in the match. Single player
+ * is simply players === [player]. In co-op the host simulates all of them and
+ * teammates arrive through the network as extra entries. */
+player.netId = 'local';
+player.name = Profile.name;
+player.isLocal = true;
+player.downed = false;
+player.reviveT = 0;
+player.modules = [];
+player.owned = null;                  // null => read Meta.ownedGadgets
+player.abilityCd = Object.create(null);
+player.abilityCharges = Object.create(null);
+player.input = { mx: 0, my: 0, mag: 0, aim: 0, fire: false, weaponFire: false };
+
+let players = [player];
+
+// Base stats for a networked teammate; the host tops these up from the join
+// payload (meta upgrades + owned gadgets) before the tank enters the world.
+function makeTank(netId, name) {
+  const t = {
+    netId, name: name || 'هم‌تیمی', isLocal: false,
+    x: W / 2, y: H / 2, r: 16, angle: 0, turret: 0,
+    speed: 170, vx: 0, vy: 0,
+    hp: 100, maxHp: 100, lives: 1, maxLives: 1,
+    cooldown: 0, fireRate: 0.28, bulletDmg: 25, bulletSpd: 520,
+    invuln: 0, alive: true, downed: false, reviveT: 0, treadPhase: 0,
+    weapon: WEAPONS[0], rapidTimer: 0,
+    gadgetCooldown: 0, gadgetAmmo: -1, gadgetCharges: 0, equippedGadget: null,
+    speedMult: 1, dmgMult: 1, spdMult: 1, fireRateMult: 1, weaponMult: {},
+    dodge: 0, berserker: false, pickupMult: 1, ramResist: 1, lifestealPerKill: 0,
+    scoreMult: 1, aetherMult: 1, usedSecondWind: false,
+    modules: [], owned: new Set(),
+    abilityCd: Object.create(null), abilityCharges: Object.create(null),
+    input: { mx: 0, my: 0, mag: 0, aim: 0, fire: false, weaponFire: false },
+  };
+  return t;
+}
+
+function tankOwns(t, id) { return t.owned ? t.owned.has(id) : ownsGadget(id); }
+function tankById(id) { for (const t of players) if (t.netId === id) return t; return null; }
+function anyTankAlive() { for (const t of players) if (t.alive) return true; return false; }
+// Nearest live tank to a point — the targeting primitive for every enemy AI.
+function nearestTank(x, y) {
+  let best = null, bd = Infinity;
+  for (const t of players) {
+    if (!t.alive) continue;
+    const d = dist2(x, y, t.x, t.y);
+    if (d < bd) { bd = d; best = t; }
+  }
+  return best;
+}
+function distToNearestTank2(x, y) {
+  const t = nearestTank(x, y);
+  return t ? dist2(x, y, t.x, t.y) : Infinity;
+}
 
 /* ----------------------------- Weapon defs ----------------------------- */
 const WEAPONS = [
@@ -1809,7 +2499,7 @@ const MODULES = [
   { id: 'secondwind', name: 'نفس دوم', rarity: 'legendary', icon: '🌀',
     desc: 'یک‌بار هنگام مرگ با ۳۰٪ جان بازمی‌گردی.',
     apply(p, ctx) {
-      Rogue.usedSecondWind = false;
+      p.usedSecondWind = false;
     }},
   // ---------------- AGILITY ----------------
   { id: 'nitro', name: 'نیترو', rarity: 'common', icon: '🚀',
@@ -1831,8 +2521,8 @@ const MODULES = [
   { id: 'greed', name: 'طمع', rarity: 'common', icon: '💎',
     desc: 'امتیاز +۲۵٪ و Aether +۲۵٪.',
     apply(p, ctx) {
-      Rogue.scoreMult = (Rogue.scoreMult || 1) * 1.25;
-      Rogue.aetherMult = (Rogue.aetherMult || 1) * 1.25;
+      p.scoreMult = (p.scoreMult || 1) * 1.25;
+      p.aetherMult = (p.aetherMult || 1) * 1.25;
     }},
   { id: 'scavenger', name: 'جاودان', rarity: 'rare', icon: '🧲',
     desc: 'احتمال دراپ پیکاپ دوبرابر.',
@@ -2114,6 +2804,7 @@ function ownsGadget(id) { return Meta.ownedGadgets.includes(id); }
 
 /* ----------------------------- Particle factory ----------------------------- */
 function spawnExplosion(x, y, color = '#ff8a3d', power = 1) {
+  Net.fx(x, y, color, power);
   const n = Math.floor(20 * power) + 12;
   for (let i = 0; i < n; i++) {
     const a = Math.random() * TAU;
@@ -2154,6 +2845,7 @@ function spawnExplosion(x, y, color = '#ff8a3d', power = 1) {
 }
 
 function spawnMuzzle(x, y, ang, color) {
+  Net.shot(x, y, ang, color);
   for (let i = 0; i < 6; i++) {
     const a = ang + rand(-0.3, 0.3);
     const s = rand(120, 260);
@@ -2272,17 +2964,17 @@ function spawnPickup() {
   });
 }
 
-function applyPickup(p) {
-  if (p.type === 'health') {
-    player.hp = Math.min(player.maxHp, player.hp + 40);
-    showBanner('+۴۰ جان');
-  } else if (p.type === 'rapid') {
-    player.fireRate = Math.max(0.06, player.fireRate * 0.5);
-    player.rapidTimer = 6;
-    showBanner('شلیک سریع فعال');
-  } else if (p.type === 'shield') {
-    player.invuln = Math.max(player.invuln, 4);
-    showBanner('سپر فعال');
+function applyPickup(t, pk) {
+  if (pk.type === 'health') {
+    t.hp = Math.min(t.maxHp, t.hp + 40);
+    if (t.isLocal) showBanner('+۴۰ جان');
+  } else if (pk.type === 'rapid') {
+    t.fireRate = Math.max(0.06, t.fireRate * 0.5);
+    t.rapidTimer = 6;
+    if (t.isLocal) showBanner('شلیک سریع فعال');
+  } else if (pk.type === 'shield') {
+    t.invuln = Math.max(t.invuln, 4);
+    if (t.isLocal) showBanner('سپر فعال');
   }
   Audio.pickup();
 }
@@ -2296,83 +2988,90 @@ function showBanner(text) {
   bannerTimer = setTimeout(() => b.classList.remove('show'), 1400);
 }
 
-/* ----------------------------- Player update ----------------------------- */
-function updatePlayer(dt) {
-  if (!player.alive) return;
-  // Movement
+/* ------------------------------ Tank update -------------------------------
+ * One routine drives every player tank. Input always arrives through t.input:
+ * filled from keyboard/mouse/touch for the local tank, from the network for
+ * teammates. That symmetry is what makes host-authoritative co-op possible. */
+function collectLocalInput(t) {
+  const inp = t.input;
   let ix = 0, iy = 0;
   if (keys['w'] || keys['arrowup']) iy -= 1;
   if (keys['s'] || keys['arrowdown']) iy += 1;
   if (keys['a'] || keys['arrowleft']) ix -= 1;
   if (keys['d'] || keys['arrowright']) ix += 1;
+  const keyed = ix !== 0 || iy !== 0;
   // Analog touch stick (magnitude preserved so a light push = slow move)
   if (Touch.moveMag > 0.08) { ix += Touch.moveX; iy += Touch.moveY; }
   const len = Math.hypot(ix, iy);
   if (len > 0) { ix /= len; iy /= len; }
-  // For analog input, scale target speed by stick magnitude (capped at 1)
-  const moveScale = Touch.moveMag > 0.08 && !(keys['w']||keys['a']||keys['s']||keys['d'])
-    ? Math.min(1, Touch.moveMag) : (len > 0 ? 1 : 0);
-  const target = player.speed * moveScale;
-  player.vx = lerp(player.vx, ix * target, 1 - Math.pow(0.001, dt));
-  player.vy = lerp(player.vy, iy * target, 1 - Math.pow(0.001, dt));
-  player.x += player.vx * dt;
-  player.y += player.vy * dt;
+  inp.mx = ix; inp.my = iy;
+  inp.mag = (Touch.moveMag > 0.08 && !keyed) ? Math.min(1, Touch.moveMag) : (len > 0 ? 1 : 0);
+  // Aim is an absolute world angle, so a teammate's turret points the same way
+  // on every screen regardless of where their cursor is.
+  inp.aim = Touch.aimMag > 0.12
+    ? Math.atan2(Touch.aimY, Touch.aimX)
+    : Math.atan2(mouse.y - t.y, mouse.x - t.x);
+  inp.fire = !!(mouse.down || keys[' '] || Touch.firing);
+  inp.weaponFire = !!(mouse.right || Touch.weaponFiring);
+  return inp;
+}
+
+function updateTank(t, dt) {
+  if (!t.alive) return;
+  const inp = t.input;
+  const ix = inp.mx || 0, iy = inp.my || 0;
+  const moving = (ix !== 0 || iy !== 0) && (inp.mag || 0) > 0;
+  const target = t.speed * (inp.mag || 0);
+  t.vx = lerp(t.vx, ix * target, 1 - Math.pow(0.001, dt));
+  t.vy = lerp(t.vy, iy * target, 1 - Math.pow(0.001, dt));
+  t.x += t.vx * dt;
+  t.y += t.vy * dt;
   // Body angle follows movement direction
-  if (len > 0) {
-    player.angle = angleLerp(player.angle, Math.atan2(iy, ix), 1 - Math.pow(0.0001, dt));
-  }
-  // Turret aim: right stick (touch) takes priority over mouse when active
-  let ta;
-  if (Touch.aimMag > 0.12) {
-    ta = Math.atan2(Touch.aimY, Touch.aimX);
-  } else {
-    ta = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-  }
-  player.turret = angleLerp(player.turret, ta, 1 - Math.pow(0.0000001, dt));
-  // Tread phase
-  player.treadPhase += Math.hypot(player.vx, player.vy) * dt * 0.04;
+  if (moving) t.angle = angleLerp(t.angle, Math.atan2(iy, ix), 1 - Math.pow(0.0001, dt));
+  t.turret = angleLerp(t.turret, inp.aim || 0, 1 - Math.pow(0.0000001, dt));
+  t.treadPhase += Math.hypot(t.vx, t.vy) * dt * 0.04;
 
   // Engine exhaust when moving
-  const spd = Math.hypot(player.vx, player.vy);
+  const spd = Math.hypot(t.vx, t.vy);
   if (spd > 60 && Math.random() < spd / 260) {
-    const back = player.angle + Math.PI + rand(-0.4, 0.4);
+    const back = t.angle + Math.PI + rand(-0.4, 0.4);
     particles.push({
-      x: player.x + Math.cos(back) * (player.r + 2),
-      y: player.y + Math.sin(back) * (player.r + 2),
-      vx: Math.cos(back) * rand(20, 60) - player.vx * 0.15,
-      vy: Math.sin(back) * rand(20, 60) - player.vy * 0.15,
+      x: t.x + Math.cos(back) * (t.r + 2),
+      y: t.y + Math.sin(back) * (t.r + 2),
+      vx: Math.cos(back) * rand(20, 60) - t.vx * 0.15,
+      vy: Math.sin(back) * rand(20, 60) - t.vy * 0.15,
       life: rand(0.3, 0.7), age: 0,
       size: rand(2, 5), color: 'rgba(0,180,220,0.5)', kind: 'smoke', drag: 0.94,
     });
   }
 
   // Clamp to map
-  player.x = clamp(player.x, player.r, W - player.r);
-  player.y = clamp(player.y, player.r, H - player.r);
+  t.x = clamp(t.x, t.r, W - t.r);
+  t.y = clamp(t.y, t.r, H - t.r);
 
-  // Invuln
-  if (player.invuln > 0) player.invuln -= dt;
-  if (player.rapidTimer > 0) {
-    player.rapidTimer -= dt;
-    if (player.rapidTimer <= 0 && player.weapon) {
-      player.fireRate = player.weapon.fireRate;
-    }
+  // Invuln / temporary buffs
+  if (t.invuln > 0) t.invuln -= dt;
+  if (t.rapidTimer > 0) {
+    t.rapidTimer -= dt;
+    if (t.rapidTimer <= 0 && t.weapon) t.fireRate = t.weapon.fireRate;
   }
 
   // Fire
-  if (player.cooldown > 0) player.cooldown -= dt;
-  if ((mouse.down || keys[' '] || Touch.firing) && player.cooldown <= 0) {
-    const w = player.weapon;
-    const muzzleX = player.x + Math.cos(player.turret) * (player.r + 8);
-    const muzzleY = player.y + Math.sin(player.turret) * (player.r + 8);
-    // Compute derived fire stats from modules + meta
-    const dmgMult = (player.dmgMult || 1) * (player.berserker && player.hp / player.maxHp < 0.3 ? 1.5 : 1);
-    const spdMult = player.spdMult || 1;
-    const fireRateMult = player.fireRateMult || 1;
-    const extraBullets = (player.weaponMult && player.weaponMult.extraBullets) || 0;
-    const pierce = (player.weaponMult && player.weaponMult.pierce) || 0;
-    const critChance = (player.weaponMult && player.weaponMult.critChance) || 0;
-    // Compute total bullets to fire
+  if (t.cooldown > 0) t.cooldown -= dt;
+  // A guest predicts its own movement but never spawns bullets — those come
+  // from the host, otherwise every shot would appear twice.
+  const canFire = !(t.isLocal && Net.isClient());
+  if (inp.fire && t.cooldown <= 0 && t.weapon && canFire) {
+    const w = t.weapon;
+    const muzzleX = t.x + Math.cos(t.turret) * (t.r + 8);
+    const muzzleY = t.y + Math.sin(t.turret) * (t.r + 8);
+    // Derived fire stats from modules + meta
+    const dmgMult = (t.dmgMult || 1) * (t.berserker && t.hp / t.maxHp < 0.3 ? 1.5 : 1);
+    const spdMult = t.spdMult || 1;
+    const fireRateMult = t.fireRateMult || 1;
+    const extraBullets = (t.weaponMult && t.weaponMult.extraBullets) || 0;
+    const pierce = (t.weaponMult && t.weaponMult.pierce) || 0;
+    const critChance = (t.weaponMult && t.weaponMult.critChance) || 0;
     const totalBurst = w.burst + extraBullets;
     const spreadRange = w.spread + extraBullets * 0.05;
     for (let i = 0; i < totalBurst; i++) {
@@ -2381,14 +3080,52 @@ function updatePlayer(dt) {
       let color = '#00f0ff';
       const isCrit = Math.random() < critChance;
       if (isCrit) { dmg *= 2; color = '#ffd23f'; }
-      const b = fireBullet(muzzleX, muzzleY, player.turret + spread, dmg, w.bulletSpd * spdMult, 'player', color);
+      const b = fireBullet(muzzleX, muzzleY, t.turret + spread, dmg, w.bulletSpd * spdMult, 'player', color);
+      if (b) b.owner = t.netId;
       if (b && pierce > 0) { b.pierce = pierce; b.hitsLeft = pierce; }
       if (b && isCrit) b.crit = true;
     }
-    spawnMuzzle(muzzleX, muzzleY, player.turret, '#aef9ff');
+    spawnMuzzle(muzzleX, muzzleY, t.turret, '#aef9ff');
     Audio.shoot();
-    player.cooldown = player.fireRate * fireRateMult;
+    t.cooldown = t.fireRate * fireRateMult;
   }
+}
+
+// Co-op: a downed teammate is revived by standing next to them.
+const REVIVE_RADIUS = 70, REVIVE_TIME = 3;
+function updateRevives(dt) {
+  if (players.length < 2) return;
+  for (const t of players) {
+    if (!t.downed) continue;
+    let helper = null;
+    for (const o of players) {
+      if (o === t || !o.alive) continue;
+      if (dist2(o.x, o.y, t.x, t.y) < REVIVE_RADIUS * REVIVE_RADIUS) { helper = o; break; }
+    }
+    if (!helper) { t.reviveT = Math.max(0, t.reviveT - dt * 0.5); continue; }
+    t.reviveT += dt;
+    if (t.reviveT >= REVIVE_TIME) reviveTank(t, helper);
+  }
+}
+
+function reviveTank(t, helper) {
+  t.downed = false;
+  t.reviveT = 0;
+  t.alive = true;
+  t.lives = Math.max(1, t.lives);
+  t.hp = Math.round(t.maxHp * 0.5);
+  t.invuln = 2.5;
+  t.vx = 0; t.vy = 0;
+  spawnExplosion(t.x, t.y, '#6effb0', 1.2);
+  Audio.pickup();
+  if (t.isLocal) {
+    toast((helper ? helper.name + ' ' : '') + 'شما را احیا کرد');
+    Platform.haptic('success');
+    updateLifeBelt();
+  } else if (helper && helper.isLocal) {
+    toast(t.name + ' احیا شد');
+  }
+  if (Net.isHost()) Net.emit('revive', { id: t.netId, by: helper ? helper.netId : null });
 }
 
 /* ----------------------------- Enemy spawn ----------------------------- */
@@ -2403,7 +3140,7 @@ function spawnEnemy(type) {
     else if (edge === 2) { x = rand(40, W - 40); y = H - 30; }
     else { x = 30; y = rand(40, H - 40); }
     tries++;
-  } while (dist2(x, y, player.x, player.y) < 220 * 220 && tries < 10);
+  } while (distToNearestTank2(x, y) < 220 * 220 && tries < 10);
 
   enemies.push({
     type, x, y, r: def.r, hp: def.hp, maxHp: def.hp,
@@ -2420,7 +3157,11 @@ function spawnEnemy(type) {
 /* ----------------------------- Enemy update ----------------------------- */
 function updateEnemy(e, dt) {
   e.spawnAnim = Math.max(0, e.spawnAnim - dt * 1.4);
-  const dx = player.x - e.x, dy = player.y - e.y;
+  // Enemies hunt the closest live tank; with nobody left they just drift.
+  const tgt = nearestTank(e.x, e.y);
+  const tx = tgt ? tgt.x : e.x + Math.cos(e.wanderAng) * 100;
+  const ty = tgt ? tgt.y : e.y + Math.sin(e.wanderAng) * 100;
+  const dx = tx - e.x, dy = ty - e.y;
   const d = Math.hypot(dx, dy) || 1;
   const nx = dx / d, ny = dy / d;
   e.turret = angleLerp(e.turret, Math.atan2(dy, dx), 1 - Math.pow(0.0005, dt));
@@ -2473,21 +3214,22 @@ function updateEnemy(e, dt) {
   if (mlen > 0.05) e.angle = angleLerp(e.angle, Math.atan2(e.vy, e.vx), 1 - Math.pow(0.0001, dt));
   e.treadPhase += Math.hypot(e.vx, e.vy) * dt * 0.05;
 
-  // Collide with player body (ram damage)
-  if (player.alive && player.invuln <= 0) {
-    const pd2 = dist2(e.x, e.y, player.x, player.y);
-    const rs = e.r + player.r;
+  // Collide with any tank body (ram damage)
+  for (const t of players) {
+    if (!t.alive || t.invuln > 0) continue;
+    const pd2 = dist2(e.x, e.y, t.x, t.y);
+    const rs = e.r + t.r;
     if (pd2 < rs * rs) {
-      damagePlayer(8 * dt + 4, e);
+      damageTank(t, 8 * dt + 4, e);
       const pd = Math.sqrt(pd2) || 1;
-      e.x -= (player.x - e.x) / pd * 30 * dt;
-      e.y -= (player.y - e.y) / pd * 30 * dt;
+      e.x -= (t.x - e.x) / pd * 30 * dt;
+      e.y -= (t.y - e.y) / pd * 30 * dt;
     }
   }
 
   // Firing
   e.cooldown -= dt;
-  if (e.cooldown <= 0 && d < e.range && player.alive) {
+  if (e.cooldown <= 0 && d < e.range && tgt) {
     const ang = e.turret + rand(-0.05, 0.05);
     const mx = e.x + Math.cos(ang) * (e.r + 6);
     const my = e.y + Math.sin(ang) * (e.r + 6);
@@ -2526,7 +3268,7 @@ function spawnDrone(type) {
     else if (edge === 2) { x = rand(40, W - 40); y = H - 30; }
     else { x = 30; y = rand(40, H - 40); }
     tries++;
-  } while (dist2(x, y, player.x, player.y) < 200 * 200 && tries < 10);
+  } while (distToNearestTank2(x, y) < 200 * 200 && tries < 10);
   drones.push({
     type, x, y, r: def.r, hp: def.hp,
     speed: def.speed, color: def.color, accent: def.accent,
@@ -2544,7 +3286,9 @@ function spawnDrone(type) {
 function updateDrone(d, dt) {
   d.spawnAnim = Math.max(0, d.spawnAnim - dt * 1.4);
   d.spin += d.spinSpeed * dt;
-  const dx = player.x - d.x, dy = player.y - d.y;
+  const tgt = nearestTank(d.x, d.y);
+  if (!tgt && d.state === 'approach') { d.vx *= 0.98; d.vy *= 0.98; d.x += d.vx * dt; d.y += d.vy * dt; return; }
+  const dx = (tgt ? tgt.x : d.lockX) - d.x, dy = (tgt ? tgt.y : d.lockY) - d.y;
   const dist = Math.hypot(dx, dy) || 1;
   const nx = dx / dist, ny = dy / dist;
   d.angle = Math.atan2(dy, dx);
@@ -2557,8 +3301,8 @@ function updateDrone(d, dt) {
       // LOCK: freeze the player's current position as the target
       d.state = 'lock';
       d.stateTimer = d.telegraph;
-      d.lockX = player.x;
-      d.lockY = player.y;
+      d.lockX = tgt.x;
+      d.lockY = tgt.y;
       d.vx *= 0.3; d.vy *= 0.3;
       Audio.ui(); // soft beep to warn player
     }
@@ -2606,13 +3350,12 @@ function updateDrone(d, dt) {
   d.x = clamp(d.x, d.r, W - d.r);
   d.y = clamp(d.y, d.r, H - d.r);
 
-  // Contact with player = boom (but only if not in lock-telegraph so player has a chance)
-  if (player.alive && player.invuln <= 0) {
-    const pd2 = dist2(d.x, d.y, player.x, player.y);
-    const rs = d.r + player.r;
-    if (pd2 < rs * rs && d.state !== 'lock') {
-      explodeDrone(d);
-      return;
+  // Contact with a tank = boom (not while telegraphing, so it stays dodgeable)
+  if (d.state !== 'lock') {
+    for (const t of players) {
+      if (!t.alive || t.invuln > 0) continue;
+      const rs = d.r + t.r;
+      if (dist2(d.x, d.y, t.x, t.y) < rs * rs) { explodeDrone(d); return; }
     }
   }
 }
@@ -2621,18 +3364,19 @@ function explodeDrone(d) {
   const idx = drones.indexOf(d);
   if (idx < 0) return;
   spawnExplosion(d.x, d.y, d.color, d.explosion);
-  // Area damage to player if close
-  if (player.alive && player.invuln <= 0) {
-    const blastR = 50 * d.explosion;
-    const pd2 = dist2(d.x, d.y, player.x, player.y);
+  // Area damage to every tank in the blast
+  const blastR = 50 * d.explosion;
+  for (const t of players) {
+    if (!t.alive || t.invuln > 0) continue;
+    const pd2 = dist2(d.x, d.y, t.x, t.y);
     if (pd2 < blastR * blastR) {
       const fall = 1 - Math.sqrt(pd2) / blastR;
-      damagePlayer(d.contactDmg * fall, 'drone');
+      damageTank(t, d.contactDmg * fall, 'drone');
     }
   }
   // Rogue: reward
   if (Game.mode === 'roguelite') {
-    const gain = Math.round(d.score * (Rogue.scoreMult || 1));
+    const gain = Math.round(d.score * runScoreMult());
     Game.score += gain;
     Rogue.runStats.score = Game.score;
     Rogue.aetherThisRun += 1;
@@ -2645,54 +3389,57 @@ function explodeDrone(d) {
 /* ========================================================================
    GADGETS — fire + abilities + HUD
    ======================================================================== */
-function getWeaponGadget() {
-  // Returns the FIRST owned weapon-type gadget (player has all of them,
-  // but only the most recently-purchased weapon is "active").
-  // For simplicity: equipped gadget is chosen at run start = first owned weapon gadget.
-  // We store it on player.equippedGadget.
-  return player.equippedGadget || null;
+function getWeaponGadget(t) {
+  // The active weapon gadget = last owned weapon in GADGETS order, resolved per
+  // tank at run start and stored on the tank itself.
+  return ((t || player).equippedGadget) || null;
 }
 
-function equipOwnedGadgets() {
-  // Determine the active weapon gadget (last purchased weapon in GADGETS order)
+// Ability cooldowns/charges live on the TANK (not on the shared gadget def) so
+// every player in a squad has their own.
+function abilityCd(g, t) { const m = (t || player).abilityCd; return (m && m[g.id]) || 0; }
+function abilityCharges(g, t) { const m = (t || player).abilityCharges; return (m && m[g.id]) || 0; }
+
+function equipGadgets(t) {
   let active = null;
   for (const g of GADGETS) {
-    if (g.kind === 'weapon' && ownsGadget(g.id)) active = g;
+    if (g.kind === 'weapon' && tankOwns(t, g.id)) active = g;
   }
-  player.equippedGadget = active;
-  // Reset ability gadget runtime state
+  t.equippedGadget = active;
+  t.abilityCd = Object.create(null);
+  t.abilityCharges = Object.create(null);
   for (const g of GADGETS) {
-    if (g.kind === 'ability' && ownsGadget(g.id)) {
-      if (g.id === 'repairkit') {
-        g._runtimeCharges = g.chargesPerRun || 0;
-      } else {
-        g._runtimeCd = 0;
-      }
+    if (g.kind === 'ability' && tankOwns(t, g.id)) {
+      if (g.id === 'repairkit') t.abilityCharges[g.id] = g.chargesPerRun || 0;
+      else t.abilityCd[g.id] = 0;
     }
   }
-  player.gadgetCooldown = 0;
+  t.gadgetCooldown = 0;
 }
 
-function fireGadgetWeapon(dt) {
-  if (!player.alive) return;
-  const g = getWeaponGadget();
+function equipOwnedGadgets() { for (const t of players) equipGadgets(t); }
+
+function fireTankGadget(t, dt) {
+  if (!t.alive) return;
+  const g = getWeaponGadget(t);
   if (!g) return;
-  if (player.gadgetCooldown > 0) player.gadgetCooldown -= dt;
-  if (!mouse.right && !Touch.weaponFiring) return;
-  if (player.gadgetCooldown > 0) return;
+  if (t.gadgetCooldown > 0) t.gadgetCooldown -= dt;
+  if (!t.input.weaponFire) return;
+  if (t.gadgetCooldown > 0) return;
   // Fire bullet from turret direction (or gadget-specific origin)
-  const mx = player.x + Math.cos(player.turret) * (player.r + 14);
-  const my = player.y + Math.sin(player.turret) * (player.r + 14);
+  const mx = t.x + Math.cos(t.turret) * (t.r + 14);
+  const my = t.y + Math.sin(t.turret) * (t.r + 14);
   const burst = g.burst || 1;
   for (let i = 0; i < burst; i++) {
     const spread = (Math.random() - 0.5) * g.spread + (i - (burst - 1) / 2) * (g.spread * 0.8 / Math.max(1, burst - 1));
-    const ang = player.turret + spread;
+    const ang = t.turret + spread;
     const b = fireGadgetBullet(mx, my, ang, g.bulletDmg, g.bulletSpd, '#b6ff3a');
+    b.owner = t.netId;
     if (g.pierce) { b.pierce = g.pierce; b.hitsLeft = g.pierce; }
   }
-  spawnMuzzle(mx, my, player.turret, '#b6ff3a');
+  spawnMuzzle(mx, my, t.turret, '#b6ff3a');
   Audio.shoot();
-  player.gadgetCooldown = g.fireRate;
+  t.gadgetCooldown = g.fireRate;
 }
 
 function fireGadgetBullet(x, y, ang, dmg, spd, color) {
@@ -2709,20 +3456,23 @@ function fireGadgetBullet(x, y, ang, dmg, spd, color) {
   return b;
 }
 
-function tryActivateAbility(key) {
+function tryActivateAbility(key, t) {
+  t = t || player;
+  // As a guest, an ability press is a request: the host owns the simulation.
+  if (t.isLocal && Net.isClient()) { Net.sendAction(key); return; }
   for (const g of GADGETS) {
     if (g.kind !== 'ability') continue;
     if (g.key !== key) continue;
-    if (!ownsGadget(g.id)) continue;
+    if (!tankOwns(t, g.id)) continue;
     if (g.id === 'repairkit') {
-      if ((g._runtimeCharges || 0) <= 0) { toast('کیت تعمیر تمام شد'); return; }
-      g._runtimeCharges -= 1;
-      player.hp = Math.min(player.maxHp, player.hp + 40);
-      showBanner('+۴۰ HP — تعمیر');
+      if (abilityCharges(g, t) <= 0) { if (t.isLocal) toast('کیت تعمیر تمام شد'); return; }
+      t.abilityCharges[g.id] = abilityCharges(g, t) - 1;
+      t.hp = Math.min(t.maxHp, t.hp + 40);
+      if (t.isLocal) showBanner('+۴۰ HP — تعمیر');
       Audio.pickup();
       return;
     }
-    if ((g._runtimeCd || 0) > 0) { toast(g.cooldownLabel + ' در cooldown'); return; }
+    if (abilityCd(g, t) > 0) { if (t.isLocal) toast(g.cooldownLabel + ' در cooldown'); return; }
     if (g.id === 'emp') {
       // Destroy ALL drones on screen with explosions
       const toBoom = drones.slice();
@@ -2732,35 +3482,36 @@ function tryActivateAbility(key) {
         }, i * 60);
       });
       // Visual pulse
-      shockwaves.push({ x: player.x, y: player.y, r: 10, maxR: Math.max(W, H) * 0.7, life: 0.7, age: 0, color: '#b6ff3a', lineW: 5 });
+      shockwaves.push({ x: t.x, y: t.y, r: 10, maxR: Math.max(W, H) * 0.7, life: 0.7, age: 0, color: '#b6ff3a', lineW: 5 });
       for (let i = 0; i < 30; i++) {
         const a = (i / 30) * TAU;
         particles.push({
-          x: player.x, y: player.y,
+          x: t.x, y: t.y,
           vx: Math.cos(a) * 400, vy: Math.sin(a) * 400,
           life: 0.5, age: 0, size: 4, color: '#b6ff3a', kind: 'spark', drag: 0.92,
         });
       }
       shake = Math.min(20, shake + 8);
-      showBanner('EMP PULSE');
-      g._runtimeCd = g.cooldown;
+      if (t.isLocal) showBanner('EMP PULSE');
+      t.abilityCd[g.id] = g.cooldown;
       Audio.explosion();
       return;
     }
     if (g.id === 'shieldboost') {
-      player.invuln = Math.max(player.invuln, 3);
-      showBanner('سپر اضطراری فعال');
+      t.invuln = Math.max(t.invuln, 3);
+      if (t.isLocal) showBanner('سپر اضطراری فعال');
       Audio.pickup();
-      g._runtimeCd = g.cooldown;
+      t.abilityCd[g.id] = g.cooldown;
       return;
     }
   }
 }
 
 function updateAbilityCooldowns(dt) {
-  for (const g of GADGETS) {
-    if (g.kind !== 'ability' || !ownsGadget(g.id)) continue;
-    if (g._runtimeCd > 0) g._runtimeCd = Math.max(0, g._runtimeCd - dt);
+  for (const t of players) {
+    const cds = t.abilityCd;
+    if (!cds) continue;
+    for (const id in cds) if (cds[id] > 0) cds[id] = Math.max(0, cds[id] - dt);
   }
 }
 
@@ -2832,9 +3583,9 @@ function refreshGadgetHud() {
     slot.className = 'gadget-slot';
     let right = '';
     if (g.id === 'repairkit') {
-      right = `<div class="gadget-key">کلید ${g.key} — <span id="gch-${g.id}">${(g._runtimeCharges || 0)}</span> شارژ</div>`;
+      right = `<div class="gadget-key">کلید ${g.key} — <span id="gch-${g.id}">${abilityCharges(g)}</span> شارژ</div>`;
     } else {
-      const cd = Math.ceil(g._runtimeCd || 0);
+      const cd = Math.ceil(abilityCd(g));
       right = `<div class="gadget-key">کلید ${g.key}<span id="gch-${g.id}">${cd > 0 ? ' — '+cd+'s' : ' — آماده'}</span></div>`;
     }
     slot.innerHTML = `
@@ -2846,7 +3597,7 @@ function refreshGadgetHud() {
       </div>
     `;
     slot.id = 'gslot-' + g.id;
-    if ((g._runtimeCd || 0) > 0) slot.classList.add('cooldown');
+    if (abilityCd(g) > 0) slot.classList.add('cooldown');
     hud.appendChild(slot);
   }
 }
@@ -2880,7 +3631,7 @@ function refreshTouchButtons() {
     b.className = 'touch-btn ability';
     b.id = 'tb-' + g.id;
     b.innerHTML = `${g.icon}<span class="tb-key">${g.cooldownLabel}</span>`;
-    bindTap(b, () => { Audio.ensure(); tryActivateAbility(g.key); Tg.haptic('medium'); });
+    bindTap(b, () => { Audio.ensure(); tryActivateAbility(g.key); Platform.haptic('medium'); });
     wrap.appendChild(b);
   }
 }
@@ -2902,7 +3653,7 @@ function updateTouchButtonsRuntime() {
     if (g.kind !== 'ability' || !ownsGadget(g.id)) continue;
     const b = $('tb-' + g.id);
     if (!b) continue;
-    const onCd = (g._runtimeCd || 0) > 0 || (g.id === 'repairkit' && (g._runtimeCharges || 0) <= 0);
+    const onCd = abilityCd(g) > 0 || (g.id === 'repairkit' && abilityCharges(g) <= 0);
     if (b._cd !== onCd) { b._cd = onCd; b.classList.toggle('cooldown', onCd); }
   }
   const wb = $('tb-weapon');
@@ -2916,13 +3667,14 @@ function updateTouchButtonsRuntime() {
 let _rotateShown = false, _rotateDismissed = false;
 function updateRotateHint() {
   const need = Touch.enabled && Game.state === 'battle' && !_rotateDismissed
-    && window.innerHeight > window.innerWidth;
+    && Platform.vpHeight() > Platform.vpWidth();
   if (need !== _rotateShown) { _rotateShown = need; $('rotateHint').classList.toggle('active', need); }
 }
 $('rotateDismiss').onclick = () => { _rotateDismissed = true; updateRotateHint(); };
 
 function drawTouchSticks() {
   if (!Touch.enabled || Game.state !== 'battle') return;
+  applyScreenTransform();   // pads are measured in CSS pixels, not world units
   // Pads are always visible so the controls read as designed buttons:
   // cyan = movement (bottom-right), magenta = aim & fire (bottom-left).
   const drawPad = (bx, by, color, active, icon) => {
@@ -2949,6 +3701,7 @@ function drawTouchSticks() {
   drawPad(aActive ? Touch.aim.ox : ap.x, aActive ? Touch.aim.oy : ap.y, '#ff2bd6', aActive, '🎯');
   if (mActive) knob(Touch.move, '#00f0ff');
   if (aActive) knob(Touch.aim, '#ff2bd6');
+  applyWorldTransform();
 }
 
 const _gadgetHudCache = {}; // per-gadget last-written width% / text / cooldown class
@@ -2965,25 +3718,25 @@ function updateGadgetHudRuntime() {
     if (g.kind === 'weapon') {
       ratio = wg ? (1 - player.gadgetCooldown / wg.fireRate) : 1;
     } else if (g.id === 'repairkit') {
-      ratio = (g._runtimeCharges || 0) > 0 ? 1 : 0;
+      ratio = abilityCharges(g) > 0 ? 1 : 0;
     } else {
-      ratio = 1 - ((g._runtimeCd || 0) / (g.cooldown || 1));
+      ratio = 1 - (abilityCd(g) / (g.cooldown || 1));
     }
     const w = Math.round(clamp(ratio, 0, 1) * 50) * 2; // quantize to 2% steps
     if (w !== cache.w) { cache.w = w; fill.style.width = w + '%'; }
     const ch = $('gch-' + g.id);
     if (ch) {
       let txt;
-      if (g.id === 'repairkit') txt = String(g._runtimeCharges || 0);
+      if (g.id === 'repairkit') txt = String(abilityCharges(g));
       else {
-        const cd = Math.ceil(g._runtimeCd || 0);
+        const cd = Math.ceil(abilityCd(g));
         txt = cd > 0 ? ' — ' + cd + 's' : ' — آماده';
       }
       if (txt !== cache.txt) { cache.txt = txt; ch.textContent = txt; }
     }
     const slot = $('gslot-' + g.id);
     if (slot) {
-      const onCd = (g._runtimeCd || 0) > 0 || (g.id === 'repairkit' && (g._runtimeCharges || 0) <= 0);
+      const onCd = abilityCd(g) > 0 || (g.id === 'repairkit' && abilityCharges(g) <= 0);
       if (onCd !== cache.cd) { cache.cd = onCd; slot.classList.toggle('cooldown', onCd); }
     }
   }
@@ -3065,45 +3818,61 @@ function maybeSpawnDrones(dt) {
 }
 
 /* ----------------------------- Player damage ----------------------------- */
-function damagePlayer(amount, src) {
-  if (!player.alive || player.invuln > 0) return;
+function damageTank(t, amount, src) {
+  if (!t.alive || t.invuln > 0) return;
   // Ram resist (from treads module): reduces contact damage from enemies/boss
-  if (src && player.ramResist && src !== 'bullet') {
-    amount *= player.ramResist;
+  if (src && t.ramResist && src !== 'bullet') {
+    amount *= t.ramResist;
   }
-  player.hp -= amount;
-  Audio.hit();
-  spawnHit(player.x, player.y, '#ff5555');
-  shake = Math.min(18, shake + 5);
-  if (player.hp <= 0) {
-    player.hp = 0;
+  t.hp -= amount;
+  spawnHit(t.x, t.y, '#ff5555');
+  if (t.isLocal) { Audio.hit(); shake = Math.min(18, shake + 5); }
+  if (t.hp <= 0) {
+    t.hp = 0;
     // Second Wind module (rogue only): revive once per run
-    if (Game.mode === 'roguelite' && Rogue.modules.includes('secondwind') && !Rogue.usedSecondWind) {
-      Rogue.usedSecondWind = true;
-      player.hp = Math.round(player.maxHp * 0.3);
-      player.invuln = 3;
-      spawnExplosion(player.x, player.y, '#b6ff3a', 1.5);
-      toast('نفس دوم فعال شد!');
+    if (Game.mode === 'roguelite' && t.modules.includes('secondwind') && !t.usedSecondWind) {
+      t.usedSecondWind = true;
+      t.hp = Math.round(t.maxHp * 0.3);
+      t.invuln = 3;
+      spawnExplosion(t.x, t.y, '#b6ff3a', 1.5);
+      if (t.isLocal) toast('نفس دوم فعال شد!');
       return;
     }
-    player.lives -= 1;
-    spawnExplosion(player.x, player.y, '#00f0ff', 1.4);
-    updateLifeBelt();
-    if (player.lives <= 0) {
-      player.alive = false;
-      setTimeout(() => {
-        if (Game.mode === 'roguelite') endRogueRun();
-        else endGame(false);
-      }, 1200);
+    t.lives -= 1;
+    spawnExplosion(t.x, t.y, '#00f0ff', 1.4);
+    if (t.isLocal) updateLifeBelt();
+    if (t.lives <= 0) {
+      t.alive = false;
+      if (players.length > 1) {
+        // Co-op: you stay on the field as a wreck until a teammate revives you.
+        t.downed = true;
+        t.reviveT = 0;
+        if (t.isLocal) { toast('از پا افتادی — منتظر هم‌تیمی بمان'); Platform.haptic('error'); }
+        else toast(t.name + ' از پا افتاد');
+        if (Net.isHost()) Net.emit('down', { id: t.netId });
+      }
+      if (!anyTankAlive()) scheduleRunOver();
     } else {
       // Respawn
-      player.x = W / 2; player.y = H / 2;
-      player.hp = player.maxHp;
-      player.invuln = 2.5;
-      player.vx = 0; player.vy = 0;
-      toast('مجدداً وارد نبرد شدی — ' + player.lives + ' جان باقی است');
+      t.x = W / 2; t.y = H / 2;
+      t.hp = t.maxHp;
+      t.invuln = 2.5;
+      t.vx = 0; t.vy = 0;
+      if (t.isLocal) toast('مجدداً وارد نبرد شدی — ' + t.lives + ' جان باقی است');
     }
   }
+}
+
+// Run/level end is decided once, by whoever owns the simulation.
+let _runOverTimer = null;
+function scheduleRunOver() {
+  if (_runOverTimer || Net.isClient()) return;
+  _runOverTimer = setTimeout(() => {
+    _runOverTimer = null;
+    if (anyTankAlive() || Game.state !== 'battle') return;
+    if (Game.mode === 'roguelite') endRogueRun();
+    else endGame(false);
+  }, 1200);
 }
 
 /* ----------------------------- Bullets update ----------------------------- */
@@ -3154,7 +3923,7 @@ function updateBullets(dt) {
           spawnHit(b.x, b.y, e.accent);
           if (b.crit) spawnHit(b.x, b.y, '#ffd23f');
           Audio.hit();
-          if (e.hp <= 0) { killEnemy(j); }
+          if (e.hp <= 0) { killEnemy(j, b.owner); }
           if (b.hitsLeft > 0) {
             b.hitsLeft -= 1;
             // mark this enemy as already hit so we don't loop on it
@@ -3185,27 +3954,46 @@ function updateBullets(dt) {
         }
       }
     } else {
-      // enemy bullet hits player
-      if (player.alive) {
-        const rs = player.r + b.r;
-        if (dist2(b.x, b.y, player.x, player.y) < rs * rs) {
-          // Dodge check
-          if (player.dodge && Math.random() < player.dodge) {
-            spawnHit(b.x, b.y, '#b6ff3a');
-            bullets.splice(i, 1);
-            continue;
-          }
-          damagePlayer(b.dmg);
+      // enemy bullet hits any player tank
+      let gone = false;
+      for (const t of players) {
+        if (!t.alive) continue;
+        const rs = t.r + b.r;
+        if (dist2(b.x, b.y, t.x, t.y) >= rs * rs) continue;
+        // Dodge check
+        if (t.dodge && Math.random() < t.dodge) {
+          spawnHit(b.x, b.y, '#b6ff3a');
           bullets.splice(i, 1);
+          gone = true;
+          break;
         }
+        damageTank(t, b.dmg, 'bullet');
+        bullets.splice(i, 1);
+        gone = true;
+        break;
       }
+      if (gone) continue;
     }
   }
 }
 
+// Score and Aether are shared by the squad, so the run uses the best bonus
+// anyone brought to it.
+function runScoreMult() {
+  let m = 1;
+  for (const t of players) m = Math.max(m, t.scoreMult || 1);
+  return m;
+}
+function runAetherMult() {
+  let m = 1;
+  for (const t of players) m = Math.max(m, t.aetherMult || 1);
+  return m;
+}
+
 /* ----------------------------- Kill enemy ----------------------------- */
-function killEnemy(idx) {
+function killEnemy(idx, ownerId) {
   const e = enemies[idx];
+  const killer = (ownerId && tankById(ownerId)) || player;
   spawnExplosion(e.x, e.y, e.color, e.isMiniBoss ? 2.6 : (e.type === 'heavy' ? 1.5 : (e.type === 'medium' ? 1.2 : 1)));
   if (e.isMiniBoss) {
     shake = Math.min(26, shake + 14); toast(`${e.name} نابود شد!`);
@@ -3214,20 +4002,20 @@ function killEnemy(idx) {
   // Rogue: apply score mult + aether gain
   let scoreGain = e.score;
   if (Game.mode === 'roguelite') {
-    scoreGain = Math.round(e.score * (Rogue.scoreMult || 1));
+    scoreGain = Math.round(e.score * (killer.scoreMult || 1));
     Rogue.runStats.kills += 1;
     Rogue.aetherThisRun += 1;
     Rogue.runStats.score = Game.score + scoreGain;
-    // Lifesteal module
-    if (player.lifestealPerKill) {
-      player.hp = Math.min(player.maxHp, player.hp + player.lifestealPerKill);
+    // Lifesteal module — credited to whoever landed the kill
+    if (killer.lifestealPerKill && killer.alive) {
+      killer.hp = Math.min(killer.maxHp, killer.hp + killer.lifestealPerKill);
     }
   }
   Game.score += scoreGain;
   Game.enemiesRemaining = Math.max(0, Game.enemiesRemaining - 1);
   enemies.splice(idx, 1);
   // Random chance for pickup drop on kill
-  const dropChance = 0.12 * (player.pickupMult || 1);
+  const dropChance = 0.12 * (killer.pickupMult || 1);
   const forceDrop = Game.mode === 'roguelite' && (e.isElite || e.isMiniBoss); // elites/mini-bosses always drop
   if (Math.random() < dropChance || forceDrop) {
     pickups.push({
@@ -3270,10 +4058,12 @@ function updatePickups(dt) {
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.age += dt; p.bob += dt * 3;
-    if (player.alive && dist2(p.x, p.y, player.x, player.y) < (p.r + player.r) * (p.r + player.r)) {
-      applyPickup(p);
-      pickups.splice(i, 1);
+    let taken = false;
+    for (const t of players) {
+      if (!t.alive) continue;
+      if (dist2(p.x, p.y, t.x, t.y) < (p.r + t.r) * (p.r + t.r)) { applyPickup(t, p); taken = true; break; }
     }
+    if (taken) { pickups.splice(i, 1); continue; }
   }
 }
 
@@ -3297,7 +4087,12 @@ function updateClouds(dt) {
    RENDER
    ======================================================================== */
 function clear() {
-  // Pre-rendered ground gradient + grid (see buildStaticLayers)
+  // The canvas is larger than the world rect (letterbox bars) — wipe the whole
+  // surface in screen space first, then paint the pre-rendered ground layer.
+  applyScreenTransform();
+  ctx.fillStyle = '#02050a';
+  ctx.fillRect(0, 0, View.sw, View.sh);
+  applyWorldTransform();
   ctx.drawImage(bgLayer, 0, 0, W, H);
 }
 
@@ -3353,6 +4148,8 @@ function drawDecals() {
 
 function drawTank(t, opts) {
   const isPlayer = opts.isPlayer;
+  const ally = !!opts.ally;                 // teammate tank: same shape, green neon
+  const hull = ally ? '#6effb0' : '#00f0ff';
   ctx.save();
   ctx.translate(t.x, t.y);
 
@@ -3369,7 +4166,7 @@ function drawTank(t, opts) {
   }
 
   // Shield aura (player invuln)
-  if (isPlayer && player.invuln > 0) {
+  if (isPlayer && t.invuln > 0) {
     ctx.save();
     const a = (Math.sin(performance.now() * 0.02) * 0.3 + 0.5) * 0.6;
     ctx.globalAlpha = a;
@@ -3397,17 +4194,17 @@ function drawTank(t, opts) {
 
   // Body — full glow for the player only; enemies get a lighter blur since
   // several are on screen at once and shadowBlur cost scales with blur size.
-  ctx.fillStyle = isPlayer ? '#0d2236' : (t.bodyColor || '#2a141f');
-  ctx.strokeStyle = isPlayer ? '#00f0ff' : t.color;
+  ctx.fillStyle = isPlayer ? (ally ? '#0d3626' : '#0d2236') : (t.bodyColor || '#2a141f');
+  ctx.strokeStyle = isPlayer ? hull : t.color;
   ctx.lineWidth = 2;
-  ctx.shadowColor = isPlayer ? '#00f0ff' : t.color;
+  ctx.shadowColor = isPlayer ? hull : t.color;
   ctx.shadowBlur = isPlayer ? 14 : 6;
   roundRect(-tr + 2, -tr + 4, tr * 2 - 4, tr * 2 - 8, 4);
   ctx.fill(); ctx.stroke();
 
   // Body detail line
   ctx.shadowBlur = 0;
-  ctx.fillStyle = isPlayer ? 'rgba(0,240,255,0.18)' : 'rgba(255,255,255,0.06)';
+  ctx.fillStyle = isPlayer ? (ally ? 'rgba(110,255,176,0.18)' : 'rgba(0,240,255,0.18)') : 'rgba(255,255,255,0.06)';
   ctx.fillRect(-tr + 4, -2, tr * 2 - 8, 4);
 
   ctx.restore();
@@ -3417,13 +4214,13 @@ function drawTank(t, opts) {
   ctx.translate(t.x, t.y);
   ctx.rotate(t.turret);
   // Barrel (shadow only on the player's turret)
-  ctx.fillStyle = isPlayer ? '#00f0ff' : t.color;
-  if (isPlayer) { ctx.shadowColor = '#00f0ff'; ctx.shadowBlur = 12; }
+  ctx.fillStyle = isPlayer ? hull : t.color;
+  if (isPlayer) { ctx.shadowColor = hull; ctx.shadowBlur = 12; }
   ctx.fillRect(0, -2.5, tr + 10, 5);
   // Turret dome
   ctx.beginPath();
-  ctx.fillStyle = isPlayer ? '#0a3a55' : (t.bodyColor || '#3a1a28');
-  ctx.strokeStyle = isPlayer ? '#00f0ff' : t.color;
+  ctx.fillStyle = isPlayer ? (ally ? '#0a5540' : '#0a3a55') : (t.bodyColor || '#3a1a28');
+  ctx.strokeStyle = isPlayer ? hull : t.color;
   ctx.lineWidth = 2;
   ctx.arc(0, 0, tr * 0.55, 0, TAU);
   ctx.fill(); ctx.stroke();
@@ -3856,53 +4653,46 @@ function roundRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Remote squadmate tanks — drawn as translucent allied units with a nameplate.
-// Only peers on the same depth are shown (others are elsewhere in the run).
-function drawPeers() {
-  for (const id in Net.peers) {
-    const p = Net.peers[id];
-    if (p.rx == null || (p.depth | 0) !== (Rogue.depth | 0)) continue;
-    const x = p.rx, y = p.ry;
+// Teammate tanks are real world entities now (the host simulates them), so
+// they are drawn with the same routine as the local tank plus a nameplate.
+function drawTeammates() {
+  for (const t of players) {
+    if (t.isLocal || (!t.alive && !t.downed)) continue;
     ctx.save();
-    ctx.globalAlpha = 0.85;
-    ctx.translate(x, y);
-    ctx.rotate(p.ang || 0);
-    // Body
-    ctx.fillStyle = '#1f6f4a';
-    ctx.strokeStyle = '#6effb0';
-    ctx.lineWidth = 2;
-    roundRect(-16, -13, 32, 26, 5);
-    ctx.fill(); ctx.stroke();
-    // Turret
-    ctx.rotate((p.tang || 0) - (p.ang || 0));
-    ctx.fillStyle = '#6effb0';
-    ctx.fillRect(0, -3, 26, 6);
-    ctx.beginPath(); ctx.arc(0, 0, 8, 0, TAU); ctx.fill();
+    ctx.globalAlpha = t.downed ? 0.4 : 0.95;
+    drawTank(t, { isPlayer: true, ally: true });
     ctx.restore();
-    // Nameplate + HP bar (screen-aligned)
+    // Nameplate + HP bar
     ctx.save();
-    ctx.globalAlpha = 0.95;
     ctx.fillStyle = '#cffff0';
-    ctx.font = '11px Segoe UI';
+    ctx.font = '12px Segoe UI';
     ctx.textAlign = 'center';
-    ctx.fillText(p.name || 'هم‌تیمی', x, y - 26);
-    const mx = p.mx || 100, hp = clamp(p.hp || 0, 0, mx);
-    const bw = 34;
+    ctx.fillText(t.name || 'هم‌تیمی', t.x, t.y - 28);
+    const mx = t.maxHp || 100, hp = clamp(t.hp || 0, 0, mx);
+    const bw = 38;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(x - bw / 2, y - 22, bw, 4);
-    ctx.fillStyle = hp / mx > 0.3 ? '#6effb0' : '#ff5a5a';
-    ctx.fillRect(x - bw / 2, y - 22, bw * (hp / mx), 4);
+    ctx.fillRect(t.x - bw / 2, t.y - 24, bw, 4);
+    ctx.fillStyle = t.downed ? '#ff5a5a' : (hp / mx > 0.3 ? '#6effb0' : '#ffb03a');
+    ctx.fillRect(t.x - bw / 2, t.y - 24, bw * (t.downed ? (t.reviveT / REVIVE_TIME) : (hp / mx)), 4);
+    if (t.downed) {
+      ctx.fillStyle = '#ff8080';
+      ctx.font = '11px Segoe UI';
+      ctx.fillText('در حال احیا…', t.x, t.y + 34);
+    }
     ctx.restore();
   }
 }
 
 function render() {
-  // Camera shake
-  ctx.save();
+  // Camera shake, re-applied through the world transform each frame.
   if (shake > 0.2) {
-    ctx.translate(rand(-shake, shake) * 0.5, rand(-shake, shake) * 0.5);
+    shakeX = rand(-shake, shake) * 0.5 * View.scale;
+    shakeY = rand(-shake, shake) * 0.5 * View.scale;
     shake *= 0.88;
+  } else {
+    shakeX = shakeY = 0;
   }
+  applyWorldTransform();
 
   clear();
   drawStars();
@@ -3922,8 +4712,8 @@ function render() {
   if (Game.bossActive && Rogue.bossRef) drawBoss(Rogue.bossRef);
   // Drones
   drawDrones();
-  // Remote squadmates (co-op)
-  if (Net.state === 'online' && Net.squadCode) drawPeers();
+  // Teammates (co-op)
+  if (players.length > 1) drawTeammates();
   // Player
   if (player.alive) drawTank(player, { isPlayer: true });
   // Gadget mounted on tank (drawn on top of player)
@@ -3945,10 +4735,10 @@ function render() {
     ctx.restore();
   }
 
-  ctx.restore();
-
-  // Touch joysticks are screen-space UI — draw after the camera-shake restore.
+  // Touch joysticks are screen-space UI and must not inherit the shake.
+  shakeX = shakeY = 0;
   drawTouchSticks();
+  applyWorldTransform();
 }
 
 /* ========================================================================
@@ -4153,13 +4943,18 @@ function openForge() {
 function startRoguelite() {
   // Reset run state
   Rogue.depth = 0;
-  Rogue.modules = [];
   Rogue.aetherThisRun = 0;
   Rogue.bossType = null;
   Rogue.bossRef = null;
-  Rogue.scoreMult = 1;
-  Rogue.aetherMult = 1;
-  Rogue.usedSecondWind = false;
+  // Relics are per-tank now; Rogue.modules stays as an alias of the local
+  // tank's list so the tray/HUD and relic filters keep working unchanged.
+  player.modules = [];
+  Rogue.modules = player.modules;
+  player.scoreMult = 1;
+  player.aetherMult = 1;
+  player.usedSecondWind = false;
+  player.downed = false;
+  player.reviveT = 0;
   Rogue.runStats = { kills: 0, bossesKilled: 0, score: 0, maxDepth: 0, miniBossesKilled: 0 };
   // Configure player from meta
   Game.mode = 'roguelite';
@@ -4192,12 +4987,13 @@ function startRoguelite() {
   enterNextRogueDepth();
 }
 
-function applyModule(id) {
+function applyModule(id, t) {
+  t = t || player;
   const m = MODULES_BY_ID[id];
   if (!m) return;
-  Rogue.modules.push(id);
-  m.apply(player, { modules: Rogue.modules });
-  refreshModuleTray();
+  t.modules.push(id);
+  m.apply(t, { modules: t.modules });
+  if (t.isLocal) refreshModuleTray();
 }
 
 function refreshModuleTray() {
@@ -4285,6 +5081,7 @@ function beginRogueBattleDepth() {
   updateHUD();
   updateLifeBelt();
   toast(`عمق ${depth}`);
+  if (Net.inSquad()) Net.emit('depth', { d: depth });
   if (depth === 1) setTimeout(showGadgetIntroIfNew, 1600);
 }
 
@@ -4303,19 +5100,28 @@ function beginRogueBossDepth(bossType) {
 
 function setupPlayerForDepth() {
   // Weapon recompute: apply meta + module multipliers to base weapon stats
-  player.weapon = WEAPONS.find(w => w.id === Game.selectedWeapon);
-  player.fireRate = player.weapon.fireRate;    // base fire rate; mult applied in updatePlayer
-  player.hp = player.maxHp;
-  player.invuln = (Rogue.modules.includes('shield')) ? 3 : 1.2;
-  player.alive = true;
-  player.x = W / 2; player.y = H / 2;
-  player.vx = 0; player.vy = 0;
-  player.rapidTimer = 0;
-  player.cooldown = 0;
-  player.speed = 170 * (player.speedMult || 1);
+  const spread = players.length > 1 ? 70 : 0;
+  players.forEach((t, i) => {
+    t.weapon = WEAPONS.find(w => w.id === Game.selectedWeapon) || WEAPONS[0];
+    t.fireRate = t.weapon.fireRate;            // base rate; multipliers applied on fire
+    t.hp = t.maxHp;
+    t.invuln = (t.modules.includes('shield')) ? 3 : 1.2;
+    t.alive = true;
+    t.downed = false;
+    t.reviveT = 0;
+    t.lives = Math.max(1, t.maxLives || 1);
+    // Squad spawns in a small ring so nobody starts inside a teammate.
+    const a = (i / Math.max(1, players.length)) * TAU;
+    t.x = W / 2 + Math.cos(a) * spread;
+    t.y = H / 2 + Math.sin(a) * spread;
+    t.vx = 0; t.vy = 0;
+    t.rapidTimer = 0;
+    t.cooldown = 0;
+    t.gadgetCooldown = 0;
+    t.speed = 170 * (t.speedMult || 1);
+  });
   bullets = []; enemies = []; particles = []; pickups = []; decals = []; drones = []; shockwaves = []; hazards = [];
   Game.droneTimer = 0;
-  player.gadgetCooldown = 0;
   refreshModuleTray();
   refreshGadgetHud();
   refreshTouchButtons();
@@ -4358,7 +5164,7 @@ function spawnRogueEnemy(type) {
     else if (edge === 2) { x = rand(40, W - 40); y = H - 30; }
     else { x = 30; y = rand(40, H - 40); }
     tries++;
-  } while (dist2(x, y, player.x, player.y) < 240 * 240 && tries < 10);
+  } while (distToNearestTank2(x, y) < 240 * 240 && tries < 10);
   // Elite chance (8%) for non-boss depths
   const eliteChance = 0.08 + Math.min(0.12, Rogue.depth * 0.005);
   const isElite = !Rogue.isBossDepth && Math.random() < eliteChance;
@@ -4426,7 +5232,9 @@ function spawnBoss(type, depth) {
 
 function updateBoss(b, dt) {
   b.spawnAnim = Math.max(0, b.spawnAnim - dt * 0.8);
-  const dx = player.x - b.x, dy = player.y - b.y;
+  // The boss locks onto the nearest live tank; patterns read b.target.
+  b.target = nearestTank(b.x, b.y) || b.target || player;
+  const dx = b.target.x - b.x, dy = b.target.y - b.y;
   const d = Math.hypot(dx, dy) || 1;
   const nx = dx / d, ny = dy / d;
   b.turret = angleLerp(b.turret, Math.atan2(dy, dx), 1 - Math.pow(0.0008, dt));
@@ -4455,15 +5263,16 @@ function updateBoss(b, dt) {
   b.treadPhase += Math.hypot(b.vx, b.vy) * dt * 0.04;
   if (Math.hypot(b.vx, b.vy) > 5) b.angle = angleLerp(b.angle, Math.atan2(b.vy, b.vx), 1 - Math.pow(0.0005, dt));
 
-  // Contact damage
-  if (player.alive && player.invuln <= 0) {
-    const pd2 = dist2(b.x, b.y, player.x, player.y);
-    const rs = b.r + player.r;
+  // Contact damage against every tank touching the boss
+  for (const t of players) {
+    if (!t.alive || t.invuln > 0) continue;
+    const pd2 = dist2(b.x, b.y, t.x, t.y);
+    const rs = b.r + t.r;
     if (pd2 < rs * rs) {
-      damagePlayer(b.contactDmg * dt * 4, b);
+      damageTank(t, b.contactDmg * dt * 4, b);
       const pd = Math.sqrt(pd2) || 1;
-      player.x += (player.x - b.x) / pd * 60 * dt;
-      player.y += (player.y - b.y) / pd * 60 * dt;
+      t.x += (t.x - b.x) / pd * 60 * dt;
+      t.y += (t.y - b.y) / pd * 60 * dt;
     }
   }
 }
@@ -4608,8 +5417,9 @@ function updateWarden(b, dt, dx, dy, d, nx, ny) {
     const shots = b.phase === 2 ? 5 : 3;
     for (let i = 0; i < shots; i++) {
       // First shot targets the player's current spot; rest scatter around them.
-      const tx = i === 0 ? player.x : player.x + rand(-160, 160);
-      const ty = i === 0 ? player.y : player.y + rand(-160, 160);
+      const vic = b.target || player;
+      const tx = i === 0 ? vic.x : vic.x + rand(-160, 160);
+      const ty = i === 0 ? vic.y : vic.y + rand(-160, 160);
       spawnHazard(
         clamp(tx, 40, W - 40), clamp(ty, 40, H - 40),
         b.phase === 2 ? 70 : 62,          // blast radius
@@ -4653,8 +5463,9 @@ function updatePhantom(b, dt, dx, dy, d, nx, ny) {
       spawnExplosion(b.x, b.y, b.color, 0.8);
       const ang = Math.atan2(dy, dx) + (Math.random() < 0.5 ? 1 : -1) * rand(1.8, 2.4);
       const dist = rand(150, 210);
-      b.x = clamp(player.x + Math.cos(ang) * dist, b.r, W - b.r);
-      b.y = clamp(player.y + Math.sin(ang) * dist, b.r, H - b.r);
+      const vic = b.target || player;
+      b.x = clamp(vic.x + Math.cos(ang) * dist, b.r, W - b.r);
+      b.y = clamp(vic.y + Math.sin(ang) * dist, b.r, H - b.r);
       spawnExplosion(b.x, b.y, b.accent, 0.9);
       shake = Math.min(20, shake + 6);
       // Blink burst: ring of bullets on arrival (bigger in phase 2)
@@ -4686,8 +5497,9 @@ function updateHazards(dt) {
         shockwaves.push({ x: h.x, y: h.y, r: 8, maxR: h.r + 20, age: 0, life: 0.5, color: h.color });
         shake = Math.min(24, shake + 8);
         Audio.explosion();
-        if (player.alive && player.invuln <= 0 && dist2(h.x, h.y, player.x, player.y) < h.r * h.r) {
-          damagePlayer(h.dmg, null);
+        for (const t of players) {
+          if (!t.alive || t.invuln > 0) continue;
+          if (dist2(h.x, h.y, t.x, t.y) < h.r * h.r) damageTank(t, h.dmg, null);
         }
       }
     } else {
@@ -4758,14 +5570,14 @@ function killBoss() {
       );
     }, i * 140);
   }
-  Game.score += Math.round(b.score * (Rogue.scoreMult || 1));
+  Game.score += Math.round(b.score * runScoreMult());
   Rogue.runStats.score = Game.score;
   Rogue.runStats.bossesKilled += 1;
   // Squad bonus: +25% aether when playing in a squad, and teammates get a cut.
   const squadMult = Net.inSquad() ? 1.25 : 1;
-  const aetherGain = Math.round(20 * (Rogue.aetherMult || 1) * squadMult);
+  const aetherGain = Math.round(20 * runAetherMult() * squadMult);
   Rogue.aetherThisRun += aetherGain;
-  if (Net.inSquad()) Net.event('boss', { depth: Rogue.depth, boss: b.type });
+  if (Net.inSquad()) Net.emit('boss', { depth: Rogue.depth, boss: b.type });
   Rogue.bossPendingChoice = true; // flag to prevent double-trigger from update()
   Game.bossActive = false;
   Rogue.bossRef = null;
@@ -4786,6 +5598,13 @@ function killBoss() {
 function openRelicChoice(isBossReward) {
   Audio.pickup();
   Game.state = 'relicchoice';
+  // Host: tell the squad to pick, and start waiting for everyone's answer.
+  // Only meaningful with teammates — a solo host advances on its own click.
+  if (Net.inSquad() && Net.isHost()) {
+    Net.emit('relic', { boss: !!isBossReward });
+    Net._picks = new Set();
+    Net._relicWait = 0;
+  }
   // Filter out modules already at legendary-stacking-cap (we allow re-pick for stacking)
   const pool = MODULES.filter(m => {
     // Always allow, but glasscannon/secondwind once-per-run
@@ -4811,9 +5630,25 @@ function openRelicChoice(isBossReward) {
       <div class="relic-desc">${m.desc}</div>
     `;
     card.onclick = () => {
+      if (card._picked) return;
       Audio.ui();
+      if (Net.isClient()) {
+        // Guests ask the host to apply the module to their tank.
+        Net.sendPick(m.id);
+        card._picked = true;
+        $('relicPrompt').textContent = `${m.name} انتخاب شد — منتظر بقیه…`;
+        row.querySelectorAll('.relic-card').forEach(c => { c._picked = true; c.style.opacity = '0.45'; });
+        return;
+      }
       applyModule(m.id);
       toast(`${m.name} فعال شد`);
+      if (Net.inSquad()) {
+        hostRegisterPick(Net.selfId, null);   // module already applied locally
+        card._picked = true;
+        $('relicPrompt').textContent = `${m.name} انتخاب شد — منتظر بقیه…`;
+        row.querySelectorAll('.relic-card').forEach(c => { c._picked = true; c.style.opacity = '0.45'; });
+        return;
+      }
       closeRelicChoiceAndContinue();
     };
     row.appendChild(card);
@@ -4854,8 +5689,10 @@ function pickRelicChoices(pool, n, bossReward) {
 }
 
 function closeRelicChoiceAndContinue() {
-  // Pickups: also heal a bit
-  player.hp = Math.min(player.maxHp, player.hp + 15);
+  Net._picks = null;
+  Net._relicWait = 0;
+  // Clearing a depth patches up the whole squad a little.
+  for (const t of players) t.hp = Math.min(t.maxHp, t.hp + 15);
   enterNextRogueDepth();
 }
 
@@ -4863,6 +5700,18 @@ function closeRelicChoiceAndContinue() {
    ROGUE DEATH + META SAVE
    ======================================================================== */
 function endRogueRun() {
+  // Guests get their result from the host's runEnd event instead — including a
+  // guest that just lost its connection mid-run (isClient() is false by then).
+  if (Net.isClient() || Net._inRun) { Net._inRun = false; return; }
+  // Co-op: everyone banks the run's aether on their own device.
+  if (Net.isOnline() && Net.isHost()) {
+    const stats = {};
+    for (const t of players) stats[t.netId] = { aether: Rogue.aetherThisRun | 0 };
+    Net.emit('runEnd', {
+      stats, score: Game.score | 0, depth: Rogue.runStats.maxDepth | 0,
+      kills: Rogue.runStats.kills | 0, bosses: Rogue.runStats.bossesKilled | 0,
+    });
+  }
   // Bank aether + update best stats
   const gained = Rogue.aetherThisRun;
   Meta.aether += gained;
@@ -4928,6 +5777,7 @@ function updateLifeBelt() {
 
 /* ----------------------------- Pause ----------------------------- */
 function togglePause() {
+  if (Net.isClient()) { toast('در بازی تیمی فقط میزبان می‌تواند مکث کند'); return; }
   if (Game.state === 'battle') {
     Game.state = 'paused';
     Touch.reset(); Touch.weaponFiring = false; // release any held touch input
@@ -4945,10 +5795,17 @@ function togglePause() {
 const STEP = 1 / 60;
 function update(dt) {
   if (Game.state !== 'battle') return;
+  // Guests do not simulate the world — the host does. They predict their own
+  // tank and keep purely cosmetic systems (particles, clouds) running.
+  if (Net.isClient()) { updateAsGuest(dt); return; }
 
-  updatePlayer(dt);
-  fireGadgetWeapon(dt);          // right-click gadget weapon
+  // Local input first, then every tank runs through the same physics.
+  if (player.alive) collectLocalInput(player);
+  dropStaleInputs();
+  for (const t of players) updateTank(t, dt);
+  for (const t of players) fireTankGadget(t, dt);   // right-click gadget weapon
   updateAbilityCooldowns(dt);    // E/R/F ability cooldowns
+  updateRevives(dt);             // co-op: pick your teammates back up
 
   // Enemy spawning
   if (Game.spawnQueue.length > 0) {
@@ -4979,14 +5836,14 @@ function update(dt) {
 
   // Level clear check (rogue: skip — handled by depthClear)
   if (Game.mode === 'campaign') {
-    if (Game.enemiesRemaining === 0 && Game.spawnQueue.length === 0 && player.alive) {
+    if (Game.enemiesRemaining === 0 && Game.spawnQueue.length === 0 && anyTankAlive()) {
       if (Game.levelClearDelay === 0) Game.levelClearDelay = 0.001;
       Game.levelClearDelay += dt;
       if (Game.levelClearDelay > 1.2) levelComplete();
     }
   } else {
     // Rogue non-boss depth clear (enemies + queue empty AND boss dead or no boss)
-    if (!Game.bossActive && Game.enemiesRemaining === 0 && Game.spawnQueue.length === 0 && player.alive) {
+    if (!Game.bossActive && Game.enemiesRemaining === 0 && Game.spawnQueue.length === 0 && anyTankAlive()) {
       if (Game.levelClearDelay === 0) Game.levelClearDelay = 0.001;
       Game.levelClearDelay += dt;
       if (Game.levelClearDelay > 0.8) {
@@ -4995,7 +5852,7 @@ function update(dt) {
       }
     }
     // Boss depth clear: boss dead AND no minions left (only if killBoss didn't already trigger)
-    if (Rogue.isBossDepth && !Rogue.bossPendingChoice && !Game.bossActive && !Rogue.bossRef && Game.enemiesRemaining === 0 && Game.spawnQueue.length === 0 && player.alive) {
+    if (Rogue.isBossDepth && !Rogue.bossPendingChoice && !Game.bossActive && !Rogue.bossRef && Game.enemiesRemaining === 0 && Game.spawnQueue.length === 0 && anyTankAlive()) {
       if (Game.levelClearDelay === 0) Game.levelClearDelay = 0.001;
       Game.levelClearDelay += dt;
       if (Game.levelClearDelay > 0.8) {
@@ -5004,6 +5861,15 @@ function update(dt) {
       }
     }
   }
+}
+
+function updateAsGuest(dt) {
+  if (player.alive) collectLocalInput(player);
+  updateTank(player, dt);        // client-side prediction (no bullets — host owns those)
+  updateParticles(dt);
+  updateShockwaves(dt);
+  updateDecals(dt);
+  updateClouds(dt);
 }
 
 // Invalidate HUD dirty-check caches so the next refresh writes every field.
@@ -5022,6 +5888,7 @@ function refreshBattleHud() {
   updateHpHud();
   updateGadgetHudRuntime();
   updateTouchButtonsRuntime();
+  if (Net.inSquad()) refreshSquadStrip();
 }
 
 const MAX_STEPS_PER_FRAME = 5; // clamp so a slow frame can't trigger a death spiral
@@ -5044,11 +5911,8 @@ function frame(now) {
   }
   if (Game.acc > STEP) Game.acc = 0; // discard backlog we couldn't process
 
-  // Multiplayer: interpolate peers every frame, broadcast our state while alive.
-  if (Net.state === 'online' && Net.squadCode) {
-    Net.interpolate(dt);
-    if (Game.state === 'battle') Net.sendState(false);
-  }
+  // Multiplayer: snapshots out (host) or input out + interpolation in (guest).
+  Net.tick(dt);
 
   if (Touch.enabled) updateRotateHint(); // runs in every state so the overlay never sticks
 
@@ -5090,12 +5954,15 @@ function renderMenuBackground() {
 // Campaign mode
 $('startBtn').onclick = () => {
   Audio.ensure();
+  // Campaign is single player by design; co-op lives in the Roguelite descent.
+  if (Net.inSquad()) { toast('کمپین تک‌نفره است — برای بازی تیمی Roguelite را بزنید'); return; }
   Game.mode = 'campaign';
   startNewGame();
 };
 // Roguelite mode
 $('rogueBtn').onclick = () => {
   Audio.ensure();
+  if (Net.isClient()) { toast('میزبان باید نزول را شروع کند'); return; }
   Game.mode = 'roguelite';
   startRoguelite();
 };
@@ -5113,52 +5980,72 @@ $('squadBtn').onclick = () => {
   const panel = $('squadPanel');
   const open = panel.style.display === 'none';
   panel.style.display = open ? 'block' : 'none';
-  if (open) refreshSquadHud();
+  if (open) refreshRoomPanel();
 };
-$('squadCreateBtn').onclick = () => { Audio.ensure(); Net.createSquad(); };
+$('quickPlayBtn').onclick = () => { Audio.ensure(); Net.quickPlay(); };
+$('squadCreateBtn').onclick = () => { Audio.ensure(); Net.createRoom(false); };
 $('squadJoinBtn').onclick = () => {
-  const code = prompt('کد اسکواد را وارد کنید:');
-  if (code) Net.joinSquad(code);
+  const code = prompt('کد اتاق را وارد کنید:');
+  if (code) Net.joinRoom(code);
 };
 $('squadInviteBtn').onclick = () => Net.share();
-$('squadLeaveBtn').onclick = () => Net.leaveSquad();
+$('squadLeaveBtn').onclick = () => Net.leave();
+$('nameInput').value = Profile.name;
+$('nameInput').onchange = () => {
+  if (Profile.setName($('nameInput').value)) {
+    player.name = Profile.name;
+    $('nameInput').value = Profile.name;
+    if (Net.isOnline()) { Net.send({ t: 'name', name: Profile.name }); Net.sendProfile(); }
+    toast('نام ذخیره شد');
+  } else {
+    $('nameInput').value = Profile.name;
+  }
+};
 
-// Render squad membership into the menu panel and the in-battle strip.
-function refreshSquadHud() {
+// Room panel in the menu: connection state, roster, available actions.
+function refreshRoomPanel() {
   const status = $('squadStatus'), members = $('squadMembers'), leaveBtn = $('squadLeaveBtn');
   if (status) {
-    if (!Net.url) status.textContent = 'سرور چندنفره پیکربندی نشده';
-    else if (Net.state === 'connecting') status.textContent = 'در حال اتصال…';
-    else if (Net.squadCode) status.textContent = 'اسکواد فعال — کد: ' + Net.squadCode;
-    else status.textContent = 'آفلاین — یک اسکواد بسازید یا به یکی بپیوندید';
+    if (Net.status === 'connecting') status.textContent = 'در حال اتصال…';
+    else if (Net.isOnline()) {
+      status.textContent = 'اتاق ' + Net.code + ' — ' + Net.members.length + '/' + NET_MAX_MEMBERS + ' بازیکن'
+        + (Net.isHost() ? ' (شما میزبانید)' : '') + (Net.ping ? ' · ' + Net.ping + 'ms' : '');
+    } else status.textContent = 'آفلاین — یک اتاق بسازید یا به یکی بپیوندید';
   }
   if (members) {
     members.innerHTML = '';
     for (const m of Net.members) {
       const chip = document.createElement('span');
-      chip.className = 'squad-chip' + (m.leader ? ' leader' : '');
+      chip.className = 'squad-chip' + (m.host ? ' leader' : '') + (m.id === Net.selfId ? ' self' : '');
       chip.textContent = m.name || 'بازیکن';
       members.appendChild(chip);
     }
   }
-  if (leaveBtn) leaveBtn.style.display = Net.squadCode ? '' : 'none';
+  if (leaveBtn) leaveBtn.style.display = Net.isOnline() ? '' : 'none';
+  const quick = $('quickPlayBtn'), create = $('squadCreateBtn'), join = $('squadJoinBtn');
+  [quick, create, join].forEach(b => { if (b) b.style.display = Net.isOnline() ? 'none' : ''; });
+  const rogue = $('rogueBtn');
+  if (rogue) {
+    rogue.textContent = Net.inSquad()
+      ? (Net.isHost() ? 'شروع نزول تیمی' : 'منتظر میزبان…')
+      : 'Roguelite نزول';
+  }
+  refreshSquadStrip();
+}
 
-  // In-battle strip: one pill per remote peer.
+// In-battle strip: one pill per teammate, with HP and revive state.
+function refreshSquadStrip() {
   const strip = $('squadStrip');
-  if (strip) {
-    if (Net.squadCode && Net.inSquad()) {
-      strip.style.display = 'flex';
-      strip.innerHTML = '';
-      for (const id in Net.peers) {
-        const p = Net.peers[id];
-        const el = document.createElement('div');
-        el.className = 'sq' + ((p.hp || 0) <= 0 ? ' down' : '');
-        el.innerHTML = '<span class="dot"></span>' + (p.name || 'هم‌تیمی') + ' · ع' + (p.depth | 0);
-        strip.appendChild(el);
-      }
-    } else {
-      strip.style.display = 'none';
-    }
+  if (!strip) return;
+  if (!Net.inSquad()) { strip.style.display = 'none'; return; }
+  strip.style.display = 'flex';
+  strip.innerHTML = '';
+  for (const t of players) {
+    if (t.isLocal) continue;
+    const el = document.createElement('div');
+    el.className = 'sq' + (t.downed || !t.alive ? ' down' : '');
+    el.innerHTML = '<span class="dot"></span>' + (t.name || 'هم‌تیمی') + ' · ' + Math.max(0, Math.round(t.hp));
+    strip.appendChild(el);
   }
 }
 
@@ -5180,6 +6067,14 @@ $('pauseBtn').onclick = togglePause;
 $('resumeBtn').onclick = togglePause;
 $('quitBtn').onclick = () => {
   $('pauseOverlay').classList.remove('active');
+  // A guest leaving does not end anyone else's run — they just exit the room.
+  if (Net.isClient()) {
+    Net.leave();
+    Game.state = 'menu';
+    $('hud').classList.remove('active');
+    showScreen('menu');
+    return;
+  }
   if (Game.mode === 'roguelite') endRogueRun();
   else {
     Game.state = 'menu';
@@ -5194,6 +6089,15 @@ $('muteBtn').onclick = () => {
 };
 
 // Init
+player.netId = Profile.id;
+player.name = Profile.name;
+refreshRoomPanel();
+const _startRoom = roomFromUrl();
+if (_startRoom) {
+  toast('در حال پیوستن به اتاق ' + _startRoom + '…');
+  $('squadPanel').style.display = 'block';
+  Net.joinRoom(_startRoom);
+}
 initClouds();
 requestAnimationFrame(frame);
 </script>
